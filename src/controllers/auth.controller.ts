@@ -1,45 +1,65 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import { prisma } from '../config/db';
-import { generateToken } from '../utils/jwt';
+import { generateToken, clearToken } from '../utils/jwt';
 import { env } from '../config/env';
 import { AppError } from '../utils/errorHandler';
-import { Language, Provider, Role } from '@prisma/client';
-import { AuthRequest } from '../types';
+import { Language, Provider, Role, User as PrismaUser } from '@prisma/client';
+import { AuthRequest, RegisterInput, LoginInput, ProfileUpdateInput, PasswordUpdateInput } from '../types'; // Pastikan RegisterInput di types/index.ts memiliki username
+
+// Mengimpor service jika logika bisnis dipindahkan ke sana
+// import * as authService from '../services/auth.service';
 
 export const registerHandler = async (
   req: Request,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const { name, email, password, language = Language.ENGLISH } = req.body;
+    const { name, email, password, username, language = Language.ENGLISH } = req.body as RegisterInput;
+
+    if (!name || !email || !password || !username) {
+      // Jika username tidak di-generate otomatis dan wajib dari input
+      next(new AppError('Name, email, username, and password are required', 400));
+      return;
+    }
     
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email },
+          { username },
+        ],
+      },
     });
 
     if (existingUser) {
-      throw new AppError('Email already registered', 400);
+      if (existingUser.email === email) {
+        next(new AppError('Email already registered', 400));
+        return;
+      }
+      if (existingUser.username === username) {
+        next(new AppError('Username already taken', 400));
+        return;
+      }
     }
 
-    // Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create user
+    // Membuat user baru dengan username
     const user = await prisma.user.create({
       data: {
         name,
         email,
+        username, // USERNAME SEKARANG DISERTAKAN
         password: hashedPassword,
         language,
-        provider: Provider.EMAIL,
+        provider: Provider.EMAIL, // Default untuk registrasi email
+        // role akan menggunakan default dari schema (USER)
       },
     });
 
-    // Create default preferences
     await prisma.preference.create({
       data: {
         userId: user.id,
@@ -47,24 +67,22 @@ export const registerHandler = async (
       },
     });
 
-    // Generate token
-    const token = generateToken(user.id);
+    const token = generateToken(user.id, user.role); 
 
-    // Set HTTP-only cookie
     res.cookie('token', token, {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
       maxAge: env.COOKIE_EXPIRES,
-      sameSite: 'strict',
+      sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none',
     });
 
-    // Return user data (without password)
     const { password: _, ...userData } = user;
     
     res.status(201).json({
       success: true,
       message: 'Registration successful',
       data: userData,
+      token,
     });
   } catch (error) {
     next(error);
@@ -75,49 +93,47 @@ export const loginHandler = async (
   req: Request,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.body as LoginInput;
     
-    // Find user by email
     const user = await prisma.user.findUnique({
       where: { email },
     });
 
     if (!user) {
-      throw new AppError('Invalid email or password', 401);
+      next(new AppError('Invalid email or password', 401));
+      return;
     }
 
-    // Check if user is using social login and doesn't have a password
     if (!user.password) {
-      throw new AppError(`Please login using ${user.provider?.toLowerCase() || 'social'} authentication`, 401);
+      next(new AppError(`Please login using ${user.provider?.toLowerCase() || 'your social account'}. Password not set.`, 401));
+      return;
     }
 
-    // Verify password
     const isPasswordMatch = await bcrypt.compare(password, user.password);
 
     if (!isPasswordMatch) {
-      throw new AppError('Invalid email or password', 401);
+      next(new AppError('Invalid email or password', 401));
+      return;
     }
 
-    // Generate token
-    const token = generateToken(user.id);
+    const token = generateToken(user.id, user.role);
 
-    // Set HTTP-only cookie
     res.cookie('token', token, {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
       maxAge: env.COOKIE_EXPIRES,
-      sameSite: 'strict',
+      sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none',
     });
-
-    // Return user data (without password)
+    
     const { password: _, ...userData } = user;
     
     res.status(200).json({
       success: true,
       message: 'Login successful',
       data: userData,
+      token,
     });
   } catch (error) {
     next(error);
@@ -128,26 +144,26 @@ export const getMeHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    if (!req.user) {
-      throw new AppError('User not found', 404);
+    if (!req.user || !req.user.id) {
+      next(new AppError('User not authenticated or user ID missing', 401));
+      return;
     }
 
-    // Get user with preferences
-    const user = await prisma.user.findUnique({
+    const userWithDetails = await prisma.user.findUnique({
       where: { id: req.user.id },
       include: {
         preference: true,
       },
     });
 
-    if (!user) {
-      throw new AppError('User not found', 404);
+    if (!userWithDetails) {
+      next(new AppError('Authenticated user not found in database', 404));
+      return;
     }
 
-    // Return user without password
-    const { password, ...userData } = user;
+    const { password, ...userData } = userWithDetails;
     
     res.status(200).json({
       success: true,
@@ -159,13 +175,12 @@ export const getMeHandler = async (
 };
 
 export const logoutHandler = (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+  req: Request, 
+  res: Response, 
+  next: NextFunction 
+): void => {
   try {
-    // Clear cookie
-    res.clearCookie('token');
+    clearToken(res);
     
     res.status(200).json({
       success: true,
@@ -177,63 +192,55 @@ export const logoutHandler = (
 };
 
 export const socialLoginCallbackHandler = (
-  req: AuthRequest,
-  res: Response
-) => {
+  req: AuthRequest, 
+  res: Response,
+  next: NextFunction 
+): void => {
   try {
     if (!req.user) {
-      return res.redirect(`${env.CORS_ORIGIN}/login?error=auth_failed`);
+      // Redirect ke halaman login frontend dengan pesan error
+      // Pastikan env.FRONTEND_URL sudah didefinisikan di config/env.ts
+      res.redirect(`${env.FRONTEND_URL || 'http://localhost:3000'}/login?error=social_auth_failed`);
+      return;
     }
 
-    // Generate token
-    const token = generateToken(req.user.id);
+    const user = req.user as PrismaUser; 
+    const token = generateToken(user.id, user.role);
 
-    // Set HTTP-only cookie
     res.cookie('token', token, {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
       maxAge: env.COOKIE_EXPIRES,
-      sameSite: 'lax', // 'lax' for cross-site redirects
+      sameSite: 'lax', 
     });
 
-    // Redirect to frontend with success
-    res.redirect(`${env.CORS_ORIGIN}/auth/success`);
+    res.redirect(`${env.FRONTEND_URL || 'http://localhost:3000'}/auth/success`);
   } catch (error) {
-    // Redirect to frontend with error
-    res.redirect(`${env.CORS_ORIGIN}/login?error=auth_failed`);
+    console.error("Error in socialLoginCallbackHandler:", error);
+    // next(error); // Teruskan ke error handler global jika ingin log atau ada penanganan khusus
+    // Atau redirect ke halaman error di frontend
+     res.redirect(`${env.FRONTEND_URL || 'http://localhost:3000'}/login?error=social_processing_error`);
   }
 };
+
 
 export const updateProfileHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
-      throw new AppError('User not found', 404);
+        next(new AppError('Authentication required', 401));
+        return;
     }
-
-    const { name, bio, image } = req.body;
-
-    // Update user profile
+    // Panggil service jika ada, atau lakukan update langsung
     const updatedUser = await prisma.user.update({
-      where: { id: req.user.id },
-      data: {
-        name,
-        bio,
-        image,
-      },
+        where: { id: req.user.id },
+        data: req.body as ProfileUpdateInput, // Pastikan ProfileUpdateInput sesuai
     });
-
-    // Return updated user (without password)
-    const { password, ...userData } = updatedUser;
-    
-    res.status(200).json({
-      success: true,
-      message: 'Profile updated successfully',
-      data: userData,
-    });
+    const { password: _, ...userWithoutPassword } = updatedUser;
+    res.status(200).json({ success: true, data: userWithoutPassword, message: 'Profile updated successfully' });
   } catch (error) {
     next(error);
   }
@@ -243,51 +250,41 @@ export const updatePasswordHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
-      throw new AppError('User not found', 404);
+        next(new AppError('Authentication required', 401));
+        return;
+    }
+    const { currentPassword, newPassword, oldPassword } = req.body as PasswordUpdateInput;
+    const effectiveOldPassword = currentPassword || oldPassword;
+
+    if (!effectiveOldPassword || !newPassword) {
+        next(new AppError('Current/Old password and new password are required', 400));
+        return;
+    }
+    
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user || !user.password) {
+        next(new AppError('User not found or password not set for this account', 400));
+        return;
     }
 
-    const { currentPassword, newPassword } = req.body;
-
-    // Get user with password
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-    });
-
-    if (!user) {
-      throw new AppError('User not found', 404);
+    const isMatch = await bcrypt.compare(effectiveOldPassword, user.password);
+    if (!isMatch) {
+        next(new AppError('Incorrect current password', 401));
+        return;
     }
 
-    // Check if user has a password (for social login users)
-    if (!user.password) {
-      throw new AppError('Cannot update password for social login account', 400);
-    }
-
-    // Verify current password
-    const isPasswordMatch = await bcrypt.compare(currentPassword, user.password);
-
-    if (!isPasswordMatch) {
-      throw new AppError('Current password is incorrect', 401);
-    }
-
-    // Hash new password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-    // Update password
     await prisma.user.update({
-      where: { id: req.user.id },
-      data: {
-        password: hashedPassword,
-      },
+        where: { id: req.user.id },
+        data: { password: hashedPassword },
     });
 
-    res.status(200).json({
-      success: true,
-      message: 'Password updated successfully',
-    });
+    res.status(200).json({ success: true, message: 'Password updated successfully' });
   } catch (error) {
     next(error);
   }
@@ -297,35 +294,25 @@ export const updateLanguageHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
-      throw new AppError('User not found', 404);
+        next(new AppError('Authentication required', 401));
+        return;
     }
-
-    const { language } = req.body;
-
-    // Validate language
-    if (!Object.values(Language).includes(language)) {
-      throw new AppError('Invalid language selection', 400);
-    }
-
-    // Update language preference
-    const updatedUser = await prisma.user.update({
-      where: { id: req.user.id },
-      data: {
-        language,
-      },
-    });
-
-    // Return updated user (without password)
-    const { password, ...userData } = updatedUser;
+    const { language } = req.body as { language: Language }; 
     
-    res.status(200).json({
-      success: true,
-      message: 'Language preference updated successfully',
-      data: userData,
+    if (!language || !Object.values(Language).includes(language)) {
+        next(new AppError('Invalid language provided', 400));
+        return;
+    }
+
+    const updatedUser = await prisma.user.update({
+        where: {id: req.user.id},
+        data: { language }
     });
+    const { password: _, ...userWithoutPassword } = updatedUser;
+    res.status(200).json({ success: true, data: userWithoutPassword, message: 'Language preference updated' });
   } catch (error) {
     next(error);
   }
@@ -335,39 +322,23 @@ export const updatePreferenceHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
-      throw new AppError('User not found', 404);
+        next(new AppError('Authentication required', 401));
+        return;
     }
-
-    const { categories, notifications, darkMode, emailUpdates } = req.body;
-
-    // Update or create preference
-    const preference = await prisma.preference.upsert({
-      where: {
-        userId: req.user.id,
-      },
-      update: {
-        categories: categories || [],
-        notifications: notifications !== undefined ? notifications : undefined,
-        darkMode: darkMode !== undefined ? darkMode : undefined,
-        emailUpdates: emailUpdates !== undefined ? emailUpdates : undefined,
-      },
-      create: {
-        userId: req.user.id,
-        categories: categories || [],
-        notifications: notifications !== undefined ? notifications : true,
-        darkMode: darkMode !== undefined ? darkMode : false,
-        emailUpdates: emailUpdates !== undefined ? emailUpdates : true,
-      },
+    
+    const preferenceData = req.body; // Asumsi req.body adalah PreferenceInput
+    const updatedPreference = await prisma.preference.upsert({
+        where: { userId: req.user.id },
+        update: preferenceData,
+        create: {
+            userId: req.user.id,
+            ...preferenceData,
+        },
     });
-
-    res.status(200).json({
-      success: true,
-      message: 'Preferences updated successfully',
-      data: preference,
-    });
+    res.status(200).json({ success: true, data: updatedPreference, message: 'Preferences updated' });
   } catch (error) {
     next(error);
   }

@@ -1,4 +1,4 @@
-import { Response, NextFunction } from 'express';
+import { Response, NextFunction, Request } from 'express'; // Ditambahkan Request untuk getCommentsHandler
 import { prisma } from '../config/db';
 import { AppError } from '../utils/errorHandler';
 import { getPaginationParams } from '../utils/pagination';
@@ -9,7 +9,7 @@ export const bookmarkArticleHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => { // Eksplisitkan return type jika diinginkan
   try {
     if (!req.user) {
       throw new AppError('User not found', 404);
@@ -17,7 +17,6 @@ export const bookmarkArticleHandler = async (
 
     const { articleId } = req.params;
 
-    // Check if article exists
     const article = await prisma.article.findUnique({
       where: { id: articleId },
     });
@@ -26,7 +25,6 @@ export const bookmarkArticleHandler = async (
       throw new AppError('Article not found', 404);
     }
 
-    // Check if already bookmarked
     const bookmark = await prisma.bookmark.findUnique({
       where: {
         articleId_userId: {
@@ -37,13 +35,13 @@ export const bookmarkArticleHandler = async (
     });
 
     if (bookmark) {
-      return res.status(200).json({
+      res.status(200).json({ // Hapus 'return'
         success: true,
         message: 'Article already bookmarked',
       });
+      return; // Tambahkan return; jika ini akhir dari cabang logika
     }
 
-    // Create bookmark
     await prisma.bookmark.create({
       data: {
         articleId,
@@ -65,7 +63,7 @@ export const getBookmarksHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
       throw new AppError('User not found', 404);
@@ -73,14 +71,12 @@ export const getBookmarksHandler = async (
 
     const { page, limit } = getPaginationParams(req);
 
-    // Count total bookmarks
     const total = await prisma.bookmark.count({
       where: {
         userId: req.user.id,
       },
     });
 
-    // Get bookmarks with articles
     const bookmarks = await prisma.bookmark.findMany({
       where: {
         userId: req.user.id,
@@ -112,7 +108,6 @@ export const getBookmarksHandler = async (
       take: limit,
     });
 
-    // Map to articles
     const articles = bookmarks.map(bookmark => bookmark.article);
 
     res.status(200).json({
@@ -135,7 +130,7 @@ export const removeBookmarkHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
       throw new AppError('User not found', 404);
@@ -143,7 +138,6 @@ export const removeBookmarkHandler = async (
 
     const { articleId } = req.params;
 
-    // Delete bookmark
     await prisma.bookmark.delete({
       where: {
         articleId_userId: {
@@ -159,11 +153,11 @@ export const removeBookmarkHandler = async (
     });
   } catch (error) {
     if ((error as any).code === 'P2025') {
-      // Prisma error for record not found
-      return res.status(200).json({
+      res.status(200).json({ // Hapus 'return'
         success: true,
         message: 'Bookmark already removed',
       });
+      return; // Tambahkan return;
     }
     next(error);
   }
@@ -174,7 +168,7 @@ export const likeArticleHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
       throw new AppError('User not found', 404);
@@ -182,7 +176,6 @@ export const likeArticleHandler = async (
 
     const { articleId } = req.params;
 
-    // Check if article exists
     const article = await prisma.article.findUnique({
       where: { id: articleId },
     });
@@ -191,7 +184,6 @@ export const likeArticleHandler = async (
       throw new AppError('Article not found', 404);
     }
 
-    // Check if already liked
     const like = await prisma.like.findUnique({
       where: {
         articleId_userId: {
@@ -202,13 +194,13 @@ export const likeArticleHandler = async (
     });
 
     if (like) {
-      return res.status(200).json({
+      res.status(200).json({ // Hapus 'return'
         success: true,
         message: 'Article already liked',
       });
+      return; // Tambahkan return;
     }
 
-    // Create like
     await prisma.like.create({
       data: {
         articleId,
@@ -216,7 +208,6 @@ export const likeArticleHandler = async (
       },
     });
 
-    // Create notification for article author if not self
     if (article.authorId && article.authorId !== req.user.id) {
       await prisma.notification.create({
         data: {
@@ -242,7 +233,7 @@ export const unlikeArticleHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
       throw new AppError('User not found', 404);
@@ -250,7 +241,6 @@ export const unlikeArticleHandler = async (
 
     const { articleId } = req.params;
 
-    // Delete like
     await prisma.like.delete({
       where: {
         articleId_userId: {
@@ -266,11 +256,11 @@ export const unlikeArticleHandler = async (
     });
   } catch (error) {
     if ((error as any).code === 'P2025') {
-      // Prisma error for record not found
-      return res.status(200).json({
+      res.status(200).json({ // Hapus 'return'
         success: true,
         message: 'Article already unliked',
       });
+      return; // Tambahkan return;
     }
     next(error);
   }
@@ -281,7 +271,7 @@ export const addCommentHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
       throw new AppError('User not found', 404);
@@ -290,7 +280,6 @@ export const addCommentHandler = async (
     const { articleId } = req.params;
     const { content, parentId } = req.body;
 
-    // Check if article exists
     const article = await prisma.article.findUnique({
       where: { id: articleId },
     });
@@ -299,7 +288,6 @@ export const addCommentHandler = async (
       throw new AppError('Article not found', 404);
     }
 
-    // If parentId provided, check if parent comment exists
     if (parentId) {
       const parentComment = await prisma.comment.findUnique({
         where: { id: parentId },
@@ -310,7 +298,6 @@ export const addCommentHandler = async (
       }
     }
 
-    // Create comment
     const comment = await prisma.comment.create({
       data: {
         content,
@@ -329,7 +316,6 @@ export const addCommentHandler = async (
       },
     });
 
-    // Create notification for article author if not self
     if (article.authorId && article.authorId !== req.user.id) {
       await prisma.notification.create({
         data: {
@@ -341,21 +327,20 @@ export const addCommentHandler = async (
       });
     }
 
-    // If replying to a comment, notify that user too
     if (parentId) {
-      const parentComment = await prisma.comment.findUnique({
+      const parentCommentData = await prisma.comment.findUnique({ // Ganti nama variabel agar tidak konflik
         where: { id: parentId },
         include: {
           user: true,
         },
       });
 
-      if (parentComment && parentComment.userId !== req.user.id) {
+      if (parentCommentData && parentCommentData.userId !== req.user.id) {
         await prisma.notification.create({
           data: {
             type: 'reply',
             message: `${req.user.name} replied to your comment`,
-            userId: parentComment.userId,
+            userId: parentCommentData.userId,
             relatedId: comment.id,
           },
         });
@@ -374,15 +359,14 @@ export const addCommentHandler = async (
 
 // Get article comments
 export const getCommentsHandler = async (
-  req: Request,
+  req: Request, // Tidak menggunakan AuthRequest karena tidak ada protect middleware
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     const { articleId } = req.params;
     const { page, limit } = getPaginationParams(req);
 
-    // Check if article exists
     const article = await prisma.article.findUnique({
       where: { id: articleId },
     });
@@ -391,7 +375,6 @@ export const getCommentsHandler = async (
       throw new AppError('Article not found', 404);
     }
 
-    // Get root comments (no parent)
     const total = await prisma.comment.count({
       where: {
         articleId,
@@ -425,7 +408,6 @@ export const getCommentsHandler = async (
       take: limit,
     });
 
-    // Get replies for each root comment
     const commentsWithReplies = await Promise.all(
       rootComments.map(async (comment) => {
         const replies = await prisma.comment.findMany({
@@ -444,7 +426,7 @@ export const getCommentsHandler = async (
           orderBy: {
             createdAt: 'asc',
           },
-          take: 3, // Limit to just a few replies initially
+          take: 3,
         });
 
         return {
@@ -474,7 +456,7 @@ export const updateCommentHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
       throw new AppError('User not found', 404);
@@ -483,7 +465,6 @@ export const updateCommentHandler = async (
     const { commentId } = req.params;
     const { content } = req.body;
 
-    // Find comment
     const comment = await prisma.comment.findUnique({
       where: { id: commentId },
     });
@@ -492,12 +473,10 @@ export const updateCommentHandler = async (
       throw new AppError('Comment not found', 404);
     }
 
-    // Check if user is the author
     if (comment.userId !== req.user.id) {
       throw new AppError('Not authorized to update this comment', 403);
     }
 
-    // Update comment
     const updatedComment = await prisma.comment.update({
       where: { id: commentId },
       data: {
@@ -529,7 +508,7 @@ export const deleteCommentHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
       throw new AppError('User not found', 404);
@@ -537,7 +516,6 @@ export const deleteCommentHandler = async (
 
     const { commentId } = req.params;
 
-    // Find comment
     const comment = await prisma.comment.findUnique({
       where: { id: commentId },
     });
@@ -546,12 +524,10 @@ export const deleteCommentHandler = async (
       throw new AppError('Comment not found', 404);
     }
 
-    // Check if user is the author or admin
-    if (comment.userId !== req.user.id && req.user.role !== 'ADMIN') {
+    if (comment.userId !== req.user.id && req.user.role !== 'ADMIN') { // Asumsi 'ADMIN' ada di enum Role Anda
       throw new AppError('Not authorized to delete this comment', 403);
     }
 
-    // Delete comment
     await prisma.comment.delete({
       where: { id: commentId },
     });
@@ -570,7 +546,7 @@ export const getReadingHistoryHandler = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.user) {
       throw new AppError('User not found', 404);
@@ -578,14 +554,12 @@ export const getReadingHistoryHandler = async (
 
     const { page, limit } = getPaginationParams(req);
 
-    // Count total reading history
     const total = await prisma.readHistory.count({
       where: {
         userId: req.user.id,
       },
     });
 
-    // Get reading history with articles
     const readingHistory = await prisma.readHistory.findMany({
       where: {
         userId: req.user.id,
@@ -617,7 +591,6 @@ export const getReadingHistoryHandler = async (
       take: limit,
     });
 
-    // Map to articles with read date
     const articles = readingHistory.map(history => ({
       ...history.article,
       readAt: history.readAt,

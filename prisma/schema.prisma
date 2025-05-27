@@ -11,28 +11,31 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Model User: Tipe 'User' akan digenerate dari model ini.
 model User {
-  id              String          @id @default(auto()) @map("_id") @db.ObjectId
-  name            String
-  email           String          @unique
-  password        String?         // Optional for social logins
-  image           String?
-  bio             String?
-  role            Role            @default(USER)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  provider        Provider?
-  providerId      String?
-  language        Language        @default(ENGLISH)
-  articles        Article[]
-  bookmarks       Bookmark[]
-  likes           Like[]
-  comments        Comment[]
-  notifications   Notification[]
-  readingHistory  ReadHistory[]
-  preference      Preference?
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  name           String
+  username       String        @unique // <--- FIELD USERNAME DITAMBAHKAN DI SINI
+  email          String        @unique
+  password       String?       // Optional for social logins
+  image          String?
+  bio            String?
+  role           Role          @default(USER) // Menggunakan enum Role
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  provider       Provider?     // Menggunakan enum Provider
+  providerId     String?
+  language       Language      @default(ENGLISH) // Menggunakan enum Language
+  articles       Article[]
+  bookmarks      Bookmark[]
+  likes          Like[]
+  comments       Comment[]
+  notifications  Notification[]
+  readingHistory ReadHistory[]
+  preference     Preference?
 }
 
+// Enum Role: Tipe 'Role' akan digenerate dari enum ini.
 enum Role {
   USER
   AUTHOR
@@ -45,142 +48,143 @@ enum Provider {
   GITHUB
 }
 
+// Enum Language: Tipe 'Language' akan digenerate dari enum ini.
 enum Language {
   ENGLISH
   INDONESIAN
 }
 
 model Preference {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  userId          String        @unique @db.ObjectId
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  categories      String[]
-  notifications   Boolean       @default(true)
-  darkMode        Boolean       @default(false)
-  emailUpdates    Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String   @unique @db.ObjectId
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categories     String[] // Menyimpan ID atau slug kategori sebagai string
+  notifications  Boolean  @default(true)
+  darkMode       Boolean  @default(false)
+  emailUpdates   Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model Category {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  name            String        @unique
-  slug            String        @unique
-  description     String?
-  image           String?
-  articles        Article[]
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  image       String?
+  articles    Article[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model Article {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  title           String
-  slug            String        @unique
-  content         String
-  summary         String
-  image           String?
-  source          String?
-  sourceUrl       String?
-  externalId      String?
-  isExternal      Boolean       @default(false)
-  isBreaking      Boolean       @default(false)
-  isTrending      Boolean       @default(false)
-  published       Boolean       @default(true)
-  publishedAt     DateTime      @default(now())
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  authorId        String?       @db.ObjectId
-  author          User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
-  categoryId      String?       @db.ObjectId
-  category        Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  tags            Tag[]         @relation(fields: [tagIds], references: [id])
-  tagIds          String[]      @db.ObjectId
-  likes           Like[]
-  comments        Comment[]
-  bookmarks       Bookmark[]
-  readHistory     ReadHistory[]
-  language        Language      @default(ENGLISH)
-  viewCount       Int           @default(0)
-  shareCount      Int           @default(0)
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  title         String
+  slug          String      @unique
+  content       String
+  summary       String
+  image         String?
+  source        String?
+  sourceUrl     String?
+  externalId    String?
+  isExternal    Boolean     @default(false)
+  isBreaking    Boolean     @default(false)
+  isTrending    Boolean     @default(false)
+  published     Boolean     @default(true)
+  publishedAt   DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  authorId      String?     @db.ObjectId
+  author        User?       @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  categoryId    String?     @db.ObjectId
+  category      Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  tags          Tag[]       @relation(fields: [tagIds], references: [id])
+  tagIds        String[]    @db.ObjectId
+  likes         Like[]
+  comments      Comment[]
+  bookmarks     Bookmark[]
+  readHistory   ReadHistory[]
+  language      Language    @default(ENGLISH) // Menggunakan enum Language
+  viewCount     Int         @default(0)
+  shareCount    Int         @default(0)
 }
 
 model Tag {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  name            String        @unique
-  slug            String        @unique
-  articles        Article[]     @relation(fields: [articleIds], references: [id])
-  articleIds      String[]      @db.ObjectId
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  name       String    @unique
+  slug       String    @unique
+  articles   Article[] @relation(fields: [articleIds], references: [id])
+  articleIds String[]  @db.ObjectId
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }
 
 model Comment {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  content         String
-  articleId       String        @db.ObjectId
-  article         Article       @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  userId          String        @db.ObjectId
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parentId        String?       @db.ObjectId
-  parent          Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  replies         Comment[]     @relation("CommentReplies")
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  content   String
+  articleId String   @db.ObjectId
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentId  String?  @db.ObjectId
+  parent    Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies   Comment[] @relation("CommentReplies")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Like {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  articleId       String        @db.ObjectId
-  article         Article       @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  userId          String        @db.ObjectId
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt       DateTime      @default(now())
-  
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  articleId String   @db.ObjectId
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
   @@unique([articleId, userId])
 }
 
 model Bookmark {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  articleId       String        @db.ObjectId
-  article         Article       @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  userId          String        @db.ObjectId
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt       DateTime      @default(now())
-  
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  articleId String   @db.ObjectId
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
   @@unique([articleId, userId])
 }
 
 model ReadHistory {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  articleId       String        @db.ObjectId
-  article         Article       @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  userId          String        @db.ObjectId
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  readAt          DateTime      @default(now())
-  
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  articleId String   @db.ObjectId
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime @default(now())
+
   @@unique([articleId, userId])
 }
 
 model Notification {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  type            String        // Type of notification: comment, like, system, etc.
-  message         String
-  read            Boolean       @default(false)
-  userId          String        @db.ObjectId
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  relatedId       String?       // ID of related entity (article, comment, etc.)
-  createdAt       DateTime      @default(now())
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  type        String   // Type of notification: comment, like, system, etc.
+  message     String
+  read        Boolean  @default(false)
+  userId      String   @db.ObjectId
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  relatedId   String?  // ID of related entity (article, comment, etc.)
+  createdAt   DateTime @default(now())
 }
 
 model NewsApiCache {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  endpoint        String        // NewsAPI endpoint
-  params          String        // Stringified JSON of params
-  data            String        // Cached response
-  language        Language      @default(ENGLISH)
-  expiresAt       DateTime
-  createdAt       DateTime      @default(now())
-  
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  endpoint  String   // NewsAPI endpoint
+  params    String   // Stringified JSON of params
+  data      String   // Cached response
+  language  Language @default(ENGLISH) // Menggunakan enum Language
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
   @@unique([endpoint, params, language])
 }

@@ -1,66 +1,87 @@
-import { Response, NextFunction } from 'express';
+import { Response, NextFunction, RequestHandler } from 'express'; // Impor RequestHandler
 import passport from 'passport';
 import { prisma } from '../config/db';
 import { AppError } from '../utils/errorHandler';
-import { AuthRequest } from '../types';
-import { Role } from '@prisma/client';
+// Impor AuthRequest, User, dan Role dari types/index.ts.
+// Pastikan 'User' di types/index.ts adalah alias dari PrismaClientUser yang lengkap.
+import { AuthRequest, User, Role as AppRole } from '../types'; 
 
 // Middleware to protect routes requiring authentication
-export const protect = (req: AuthRequest, res: Response, next: NextFunction) => {
-  passport.authenticate('jwt', { session: false }, (err: any, user: any, info: any) => {
+// Kita akan mengetik 'protect' sebagai RequestHandler secara eksplisit
+export const protect: RequestHandler = (req, res, next) => {
+  // Karena kita mengetik sebagai RequestHandler, req di sini adalah Request biasa.
+  // Kita akan melakukan cast ke AuthRequest di dalam callback setelah user diautentikasi.
+  const authReq = req as AuthRequest;
+
+  const callback = (err: any, userFromPassport: User | false | null, info: any): void => {
     if (err) {
       return next(err);
     }
-
-    if (!user) {
-      return next(new AppError('Please log in to access this resource', 401));
+    if (!userFromPassport) {
+      const message = info?.message || 'Authentication failed. Please log in to access this resource.';
+      return next(new AppError(message, 401));
     }
-
-    req.user = user;
+    // Tetapkan user ke authReq.user (yang sudah diketik sebagai AuthRequest)
+    authReq.user = userFromPassport as User; 
     next();
-  })(req, res, next);
+  };
+  passport.authenticate('jwt', { session: false }, callback)(authReq, res, next);
 };
 
 // Middleware to restrict access to admin only
-export const isAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
-  if (req.user?.role !== Role.ADMIN) {
-    return next(new AppError('Access denied: Admin privileges required', 403));
+// Ketik sebagai RequestHandler, lalu cast req ke AuthRequest di dalamnya
+export const isAdmin: RequestHandler = (req, res, next) => {
+  const authReq = req as AuthRequest;
+  if (authReq.user && authReq.user.role === AppRole.ADMIN) {
+    next();
+  } else {
+    res.status(403).json({ success: false, message: 'Access denied: Admin privileges required' });
   }
-  next();
 };
 
 // Middleware to restrict access to admin or author
-export const isAuthor = (req: AuthRequest, res: Response, next: NextFunction) => {
-  if (req.user?.role !== Role.ADMIN && req.user?.role !== Role.AUTHOR) {
-    return next(new AppError('Access denied: Author privileges required', 403));
+export const isAuthor: RequestHandler = (req, res, next) => {
+  const authReq = req as AuthRequest;
+  if (authReq.user && (authReq.user.role === AppRole.ADMIN || authReq.user.role === AppRole.AUTHOR)) {
+    next();
+  } else {
+    res.status(403).json({ success: false, message: 'Access denied: Author or Admin privileges required' });
   }
-  next();
 };
 
 // Middleware to check if user owns a resource
-export const isOwner = (resourceName: string) => {
-  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const isOwner = (modelNameInput: keyof typeof prisma): RequestHandler => { 
+  return async (req, res, next) => { // req di sini adalah Request biasa
+    const authReq = req as AuthRequest;
     try {
-      if (!req.user) {
-        return next(new AppError('User not authenticated', 401));
+      if (!authReq.user) {
+        next(new AppError('User not authenticated', 401));
+        return;
       }
 
-      const resourceId = req.params.id;
+      const resourceId = authReq.params.id;
       if (!resourceId) {
-        return next(new AppError('Resource ID not provided', 400));
+        next(new AppError('Resource ID not provided in parameters', 400));
+        return;
       }
 
-      const model = resourceName.charAt(0).toUpperCase() + resourceName.slice(1);
-      const resource = await (prisma as any)[resourceName].findUnique({
+      const modelName: string = String(modelNameInput); 
+      const capitalizedModelName = modelName.charAt(0).toUpperCase() + modelName.slice(1);
+
+      const resource = await (prisma as any)[modelName].findUnique({
         where: { id: resourceId },
       });
 
       if (!resource) {
-        return next(new AppError(`${model} not found`, 404));
+        next(new AppError(`${capitalizedModelName} not found`, 404));
+        return;
       }
 
-      if (resource.userId !== req.user.id && req.user.role !== Role.ADMIN) {
-        return next(new AppError(`Not authorized to access this ${resourceName}`, 403));
+      const ownerField = resource.authorId || resource.userId;
+
+      if (ownerField !== authReq.user.id && authReq.user.role !== AppRole.ADMIN) {
+        next(new AppError(`Not authorized to access or modify this ${modelName}`, 403));
+        return;
       }
 
       next();
