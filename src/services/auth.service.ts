@@ -1,22 +1,22 @@
-import bcrypt from 'bcrypt';
-import { prisma } from '../config/db';
-import { AppError } from '../utils/errorHandler';
-import { LoginInput, RegisterInput } from '../types'; // Pastikan tipe ini sesuai
-import { User, Role, Language, Provider } from '@prisma/client'; // Impor semua tipe yang relevan dari User model jika digunakan di sini
+import bcrypt from "bcrypt";
+import { prisma } from "../config/db";
+import { AppError } from "../utils/errorHandler";
+import { LoginInput, RegisterInput } from "../types"; // Pastikan tipe ini sesuai
+import { User, Role, Language, Provider } from "@prisma/client"; // Impor semua tipe yang relevan dari User model jika digunakan di sini
 
 export const register = async ({
   name,
   email,
   password,
-  // username, // Jika Anda ingin username diinput dari RegisterInput
-}: RegisterInput): Promise<User> => {
+}: // username, // Jika Anda ingin username diinput dari RegisterInput
+RegisterInput): Promise<User> => {
   // Check if user with email already exists
   const existingUserByEmail = await prisma.user.findUnique({
     where: { email },
   });
 
   if (existingUserByEmail) {
-    throw new AppError('Email sudah terdaftar', 400);
+    throw new AppError("Email sudah terdaftar", 400);
   }
 
   // --- Pembuatan Username ---
@@ -24,12 +24,13 @@ export const register = async ({
   // Contoh sederhana: ambil bagian dari email sebelum '@' dan tambahkan angka acak.
   // Anda HARUS memastikan keunikan username ini di database.
   // Logika ini mungkin perlu disesuaikan.
-  const baseUsername = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, ''); // Bersihkan karakter non-alfanumerik
+  const baseUsername = email.split("@")[0].replace(/[^a-zA-Z0-9]/g, ""); // Bersihkan karakter non-alfanumerik
   let potentialUsername = baseUsername;
   let usernameIsUnique = false;
   let attempt = 0;
 
-  while (!usernameIsUnique && attempt < 10) { // Batasi percobaan untuk menghindari loop tak terbatas
+  while (!usernameIsUnique && attempt < 10) {
+    // Batasi percobaan untuk menghindari loop tak terbatas
     const existingUserByUsername = await prisma.user.findUnique({
       where: { username: potentialUsername },
     });
@@ -45,19 +46,23 @@ export const register = async ({
     // Jika setelah beberapa percobaan username unik tidak ditemukan,
     // Anda bisa melempar error atau menggunakan strategi lain.
     // Untuk sekarang, kita akan menggunakan email dengan timestamp jika gagal.
-    potentialUsername = `${baseUsername}${Date.now()}`; 
+    potentialUsername = `${baseUsername}${Date.now()}`;
     // Peringatan: Ini masih bisa berpotensi tidak unik dalam skenario konkurensi tinggi,
     // idealnya ada constraint database atau mekanisme retry yang lebih baik.
-    const finalCheck = await prisma.user.findUnique({ where: { username: potentialUsername }});
+    const finalCheck = await prisma.user.findUnique({
+      where: { username: potentialUsername },
+    });
     if (finalCheck) {
-        throw new AppError('Gagal membuat username unik setelah beberapa percobaan.', 500);
+      throw new AppError(
+        "Gagal membuat username unik setelah beberapa percobaan.",
+        500
+      );
     }
   }
   // --- Akhir Pembuatan Username ---
 
-
   // Hash password
-  const salt = await bcrypt.genSalt(10);
+  const salt = await bcrypt.genSalt(12);
   const hashedPassword = await bcrypt.hash(password, salt);
 
   // Create new user
@@ -80,37 +85,37 @@ export const register = async ({
       userId: user.id,
       categories: [], // Kategori default kosong
       // field lain di Preference akan menggunakan default dari schema
-    }
+    },
   });
 
   return user;
 };
 
-export const login = async ({
-  email,
-  password,
-}: LoginInput): Promise<User> => {
+export const login = async ({ email, password }: LoginInput): Promise<User> => {
   // Check if user exists
   const user = await prisma.user.findUnique({
     where: { email },
   });
 
   if (!user) {
-    throw new AppError('Email atau password salah', 401);
+    throw new AppError("Email atau password salah", 401);
   }
 
   // **PERBAIKAN UTAMA DI SINI**
   // Pastikan user.password ada sebelum membandingkan
   if (!user.password) {
     // Ini bisa terjadi jika user mendaftar melalui OAuth dan belum mengatur password lokal
-    throw new AppError('Password tidak diatur untuk akun ini. Coba login dengan metode lain.', 400);
+    throw new AppError(
+      "Password tidak diatur untuk akun ini. Coba login dengan metode lain.",
+      400
+    );
   }
 
   // Compare passwords
   const isPasswordMatch = await bcrypt.compare(password, user.password);
 
   if (!isPasswordMatch) {
-    throw new AppError('Email atau password salah', 401);
+    throw new AppError("Email atau password salah", 401);
   }
 
   return user;
@@ -122,7 +127,7 @@ export const getUserById = async (userId: string): Promise<User | null> => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     // Anda mungkin ingin menyertakan relasi tertentu di sini, tergantung kebutuhan
-    // include: { preference: true } 
+    // include: { preference: true }
   });
 
   // Mengembalikan null jika user tidak ditemukan, bukan melempar error,
@@ -154,24 +159,39 @@ export const findOrCreateUserFromProvider = async (
     },
   });
 
-  const safeEmail = email || `${profileId}@${provider.toString().toLowerCase()}.placeholder.com`; // Fallback email jika null
-  
+  const safeEmail =
+    email ||
+    `${profileId}@${provider.toString().toLowerCase()}.placeholder.com`; // Fallback email jika null
+
   // Buat username unik
-  const baseUsername = (name.split(' ')[0] || provider.toString().toLowerCase() + profileId.substring(0,5)).replace(/[^a-zA-Z0-9]/g, '');
+  const baseUsername = (
+    name.split(" ")[0] ||
+    provider.toString().toLowerCase() + profileId.substring(0, 5)
+  ).replace(/[^a-zA-Z0-9]/g, "");
   let potentialUsername = baseUsername;
   let usernameIsUnique = false;
   let attempt = 0;
   while (!usernameIsUnique && attempt < 10) {
-    const existingUserByUsername = await prisma.user.findUnique({ where: { username: potentialUsername }});
+    const existingUserByUsername = await prisma.user.findUnique({
+      where: { username: potentialUsername },
+    });
     if (!existingUserByUsername) usernameIsUnique = true;
-    else { attempt++; potentialUsername = `${baseUsername}${Math.floor(Math.random() * 1000)}`; }
+    else {
+      attempt++;
+      potentialUsername = `${baseUsername}${Math.floor(Math.random() * 1000)}`;
+    }
   }
-   if (!usernameIsUnique) potentialUsername = `${baseUsername}${Date.now()}`;
-   const finalCheck = await prisma.user.findUnique({ where: { username: potentialUsername }});
-   if (finalCheck && finalCheck.id !== user?.id) { // Pastikan tidak konflik dengan user yang mungkin sudah ada (jika email match)
-        potentialUsername = `${baseUsername}${profileId.substring(0,3)}${Date.now()}`;
-   }
-
+  if (!usernameIsUnique) potentialUsername = `${baseUsername}${Date.now()}`;
+  const finalCheck = await prisma.user.findUnique({
+    where: { username: potentialUsername },
+  });
+  if (finalCheck && finalCheck.id !== user?.id) {
+    // Pastikan tidak konflik dengan user yang mungkin sudah ada (jika email match)
+    potentialUsername = `${baseUsername}${profileId.substring(
+      0,
+      3
+    )}${Date.now()}`;
+  }
 
   if (!user) {
     // User tidak ditemukan, buat user baru
@@ -201,7 +221,8 @@ export const findOrCreateUserFromProvider = async (
           providerId: profileId,
           image: user.image || imageUrl, // Update image jika belum ada atau dari provider baru
           // Pastikan email tidak dioverwrite jika sudah ada dan terverifikasi
-          email: user.email && user.email !== safeEmail ? user.email : safeEmail,
+          email:
+            user.email && user.email !== safeEmail ? user.email : safeEmail,
         },
       });
     }

@@ -1,93 +1,207 @@
-import express, { Request, Response, NextFunction } from 'express'; // Ditambahkan Request, Response, NextFunction
+import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import passport from 'passport';
 import session from 'express-session';
-import { connectDB } from './config/db';
-import { env } from './config/env';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import { connectDB, prisma } from './config/db';
+import { env, validateEnv } from './config/env';
 import routes from './routes';
-import { errorHandler } from './utils/errorHandler'; // Pastikan errorHandler di file ini memiliki tipe (err, req, res, next) => void
+import { errorHandler } from './utils/errorHandler';
 import { setupPassport } from './config/passport';
 import { startNewsAPIFetcher } from './services/news-api.service';
 import { initializeAdmin } from './services/admin.service';
+import { logger } from './utils/logger';
 
 // Load environment variables
 dotenv.config();
 
+// Validate environment variables
+validateEnv();
+
 // Create Express app
 const app = express();
 
-// Connect to database
-connectDB().then(() => {
-  // Initialize admin user if not exists
-  initializeAdmin();
-  
-  // Start the NewsAPI fetcher for background updates
-  // Pastikan fungsi ini ada dan tidak menyebabkan error saat startup jika API key belum siap
-  if (env.NEWS_API_KEY) { // Hanya jalankan jika API key ada
-    startNewsAPIFetcher();
-  } else {
-    console.warn('NEWS_API_KEY not found, NewsAPI fetcher not started.');
-  }
-}).catch(dbError => {
-  console.error('Failed to connect to DB on startup:', dbError);
-  // Anda mungkin ingin keluar dari proses jika koneksi DB gagal saat startup
-  // process.exit(1); 
-});
-
-// Middlewares
-app.use(cors({
-  origin: env.CORS_ORIGIN,
-  credentials: true,
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // Tambahkan ini untuk parsing form data jika perlu
+// Rate limiting
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: {
+    success: false,
+    message: 'Too many requests from this IP, please try again later.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // limit each IP to 5 auth requests per windowMs
+  message: {
+    success: false,
+    message: 'Too many authentication attempts, please try again later.',
+  },
+  skipSuccessfulRequests: true,
+});
+
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use(generalLimiter);
+
+// CORS configuration
+app.use(cors({
+  origin: (origin, callback) => {
+    const allowedOrigins = env.CORS_ORIGIN.split(',').map(o => o.trim());
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      logger.warn(`CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['X-Total-Count'],
+}));
+
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser(env.COOKIE_SECRET));
 
 // Session configuration for OAuth
-// Pastikan COOKIE_SECRET benar-benar ada dan kuat
-if (!env.COOKIE_SECRET) {
-  console.error('FATAL ERROR: COOKIE_SECRET is not defined. OAuth and sessions will not work correctly.');
-  // process.exit(1); // Pertimbangkan untuk keluar jika ini kritikal
-}
-
 app.use(session({
-  secret: env.COOKIE_SECRET, // Harus sama dengan yang digunakan di cookieParser jika ingin berbagi state
+  secret: env.COOKIE_SECRET,
   resave: false,
-  saveUninitialized: false, // Set true jika ingin menyimpan session baru meskipun belum dimodifikasi (berguna untuk OAuth)
+  saveUninitialized: false,
   cookie: {
-    secure: env.NODE_ENV === 'production', // Hanya true jika HTTPS
-    maxAge: env.COOKIE_EXPIRES, // dalam milidetik
+    secure: env.NODE_ENV === 'production',
+    maxAge: env.COOKIE_EXPIRES,
     httpOnly: true,
-    sameSite: env.NODE_ENV === 'production' ? 'lax' : undefined, // Pertimbangkan 'lax' atau 'strict' untuk keamanan
-  }
+    sameSite: env.NODE_ENV === 'production' ? 'lax' : undefined,
+  },
+  name: 'newticax.session',
 }));
 
 // Initialize Passport
 app.use(passport.initialize());
 app.use(passport.session());
-setupPassport(); // Panggil fungsi setup Passport Anda
+setupPassport();
+
+// Request logging
+app.use((req: Request, res: Response, next: NextFunction) => {
+  logger.info(`${req.method} ${req.url}`, {
+    ip: req.ip,
+    userAgent: req.get('User-Agent'),
+  });
+  next();
+});
 
 // Routes
 app.use('/api', routes);
 
 // Health check route
-app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({ status: 'ok', message: 'Server is running' });
+app.get('/health', async (req: Request, res: Response) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: env.NODE_ENV,
+      version: process.env.npm_package_version || '1.0.0',
+    });
+  } catch (error) {
+    logger.error('Health check failed', error);
+    res.status(503).json({
+      status: 'error',
+      message: 'Database connection failed',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// 404 handler
+app.use('*', (req: Request, res: Response) => {
+  res.status(404).json({
+    success: false,
+    message: `Route ${req.originalUrl} not found`,
+  });
 });
 
 // Error handler middleware
-// Pastikan 'errorHandler' di './utils/errorHandler' memiliki signatur:
-// (err: any, req: Request, res: Response, next: NextFunction) => void;
-// dan tidak me-return hasil dari res.json() atau res.send().
 app.use(errorHandler);
 
-// Start server
-const PORT = env.PORT;
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT} in ${env.NODE_ENV} mode`);
+// Graceful shutdown
+const gracefulShutdown = async (signal: string) => {
+  logger.info(`Received ${signal}, shutting down gracefully...`);
+  
+  try {
+    await prisma.$disconnect();
+    logger.info('Database connections closed');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during shutdown:', error);
+    process.exit(1);
+  }
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Connect to database and start server
+connectDB().then(async () => {
+  try {
+    // Initialize admin user if not exists
+    await initializeAdmin();
+    
+    // Start the NewsAPI fetcher for background updates
+    if (env.NEWS_API_KEY) {
+      startNewsAPIFetcher();
+      logger.info('NewsAPI fetcher started');
+    } else {
+      logger.warn('NEWS_API_KEY not found, NewsAPI fetcher not started');
+    }
+
+    // Start server
+    const PORT = env.PORT;
+    const server = app.listen(PORT, () => {
+      logger.info(`✅ Server running on port ${PORT} in ${env.NODE_ENV} mode`);
+    });
+
+    // Handle server errors
+    server.on('error', (error: any) => {
+      if (error.code === 'EADDRINUSE') {
+        logger.error(`Port ${PORT} is already in use`);
+      } else {
+        logger.error('Server error:', error);
+      }
+      process.exit(1);
+    });
+
+  } catch (error) {
+    logger.error('Failed to initialize application:', error);
+    process.exit(1);
+  }
+}).catch(dbError => {
+  logger.error('Failed to connect to database:', dbError);
+  process.exit(1);
 });
 
 export default app;

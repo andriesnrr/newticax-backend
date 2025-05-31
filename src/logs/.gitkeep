@@ -1,0 +1,41 @@
+// =====================================
+// logs/.gitkeep - Keep logs directory in git
+// =====================================
+
+# This file ensures that the logs directory is tracked by git
+# but allows the directory to be empty
+
+# The logs directory is used for:
+# - Application logs (combined.log)
+# - Error logs (error.log)
+# - Warning logs (warn.log)
+# - Security logs
+# - Audit logs
+
+# Note: Actual log files should be added to .gitignore
+# This file just ensures the directory structure exists
+
+# =====================================
+# uploads/.gitkeep - Keep uploads directory in git  
+# =====================================
+
+# This file ensures that the uploads directory is tracked by git
+# but allows the directory to be empty
+
+# The uploads directory is used for:
+# - User uploaded files
+# - Article images
+# - Avatar images
+# - Document attachments
+# - Temporary files
+
+# Note: Uploaded files should be added to .gitignore for security
+# This file just ensures the directory structure exists
+
+# Directory structure:
+# uploads/
+# ├── avatars/
+# ├── articles/
+# ├── documents/
+# ├── temp/
+# └── [user-id]/

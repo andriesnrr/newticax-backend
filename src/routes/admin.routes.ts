@@ -20,6 +20,8 @@ import {
 // Impor middleware yang sudah diperbaiki
 import { protect, isAdmin } from '../middlewares/auth.middleware';
 import { validateCategory, validateTag } from '../middlewares/validate.middleware';
+import { asyncHandler } from '../utils/asyncHandler';
+import { getArticlesHandler } from '../controllers/article.controller';
 // Impor AuthRequest jika ada handler yang tidak melalui protect tapi butuh req.user (jarang)
 // import { AuthRequest } from '../types';
 
@@ -57,5 +59,7 @@ router.put('/articles/:id/breaking', toggleBreakingNewsHandler as RequestHandler
 
 // News API sync
 router.post('/sync-news', syncNewsAPIHandler as RequestHandler);
+
+router.get('/articles', asyncHandler(getArticlesHandler));
 
 export default router;
