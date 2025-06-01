@@ -1,4 +1,3 @@
-// src/utils/cache.ts - Modified with fallback
 import { Redis } from 'ioredis';
 import { env } from '../config/env';
 import { logger } from './logger';
@@ -25,9 +24,46 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+// Parse Redis URL helper function
+const parseRedisUrl = (url: string) => {
+  try {
+    const redisUrl = new URL(url);
+    return {
+      host: redisUrl.hostname || 'localhost',
+      port: parseInt(redisUrl.port) || 6379,
+      password: redisUrl.password || undefined,
+      db: redisUrl.pathname ? parseInt(redisUrl.pathname.slice(1)) || 0 : 0,
+    };
+  } catch (error) {
+    throw new Error(`Invalid Redis URL: ${url}`);
+  }
+};
+
+// Memory cache operations
+const memoryGet = (key: string): any => {
+  const item = memoryCache.get(key);
+  if (!item) return null;
+  
+  if (item.expiry < Date.now()) {
+    memoryCache.delete(key);
+    return null;
+  }
+  
+  return item.value;
+};
+
+const memorySet = (key: string, value: any, ttlSeconds: number): void => {
+  const expiry = Date.now() + (ttlSeconds * 1000);
+  memoryCache.set(key, { value, expiry });
+};
+
+const memoryDelete = (key: string): boolean => {
+  return memoryCache.delete(key);
+};
+
 // Initialize Redis connection with fallback
 export const initializeCache = (): void => {
-  // Skip Redis if REDIS_URL is not configured
+  // Skip Redis if REDIS_URL is not configured or is default localhost
   if (!env.REDIS_URL || env.REDIS_URL === 'redis://localhost:6379') {
     logger.info('Redis URL not configured, using in-memory cache fallback');
     useRedis = false;
@@ -37,26 +73,15 @@ export const initializeCache = (): void => {
   try {
     const redisConfig = parseRedisUrl(env.REDIS_URL);
     
-    // Create Redis instance with valid options only
-    redis = new Redis({
-      host: redisConfig.host,
-      port: redisConfig.port,
+    // Create Redis instance with minimal configuration for maximum compatibility
+    redis = new Redis(redisConfig.port, redisConfig.host, {
       password: redisConfig.password,
       db: redisConfig.db,
-      // Valid ioredis options
-      enableReadyCheck: false,
       maxRetriesPerRequest: 3,
       lazyConnect: true,
-      keepAlive: 30000,
-      family: 4,
       connectTimeout: 5000,
       commandTimeout: 3000,
       keyPrefix: 'newticax:',
-      // Additional valid options
-      retryDelayOnFailover: 100,
-      autoResubscribe: true,
-      autoResendUnfulfilledCommands: true,
-      maxLoadingTimeout: 5000,
     });
 
     redis.on('connect', () => {
@@ -94,43 +119,6 @@ export const initializeCache = (): void => {
     logger.warn('Redis initialization failed, using memory cache fallback', { error });
     redis = null;
   }
-};
-
-// Parse Redis URL helper function
-const parseRedisUrl = (url: string) => {
-  try {
-    const redisUrl = new URL(url);
-    return {
-      host: redisUrl.hostname || 'localhost',
-      port: parseInt(redisUrl.port) || 6379,
-      password: redisUrl.password || undefined,
-      db: redisUrl.pathname ? parseInt(redisUrl.pathname.slice(1)) || 0 : 0,
-    };
-  } catch (error) {
-    throw new Error(`Invalid Redis URL: ${url}`);
-  }
-};
-
-// Memory cache operations
-const memoryGet = (key: string): any => {
-  const item = memoryCache.get(key);
-  if (!item) return null;
-  
-  if (item.expiry < Date.now()) {
-    memoryCache.delete(key);
-    return null;
-  }
-  
-  return item.value;
-};
-
-const memorySet = (key: string, value: any, ttlSeconds: number): void => {
-  const expiry = Date.now() + (ttlSeconds * 1000);
-  memoryCache.set(key, { value, expiry });
-};
-
-const memoryDelete = (key: string): boolean => {
-  return memoryCache.delete(key);
 };
 
 // Get data from cache (Redis or Memory)
@@ -437,195 +425,6 @@ export const clearCache = async (): Promise<void> => {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error('Cache clear error', { error: errorMessage });
   }
-};
-
-// Initialize cache on module load
-initializeCache();
-
-// Parse Redis URL helper function
-const parseRedisUrl = (url: string) => {
-  try {
-    const redisUrl = new URL(url);
-    return {
-      host: redisUrl.hostname || 'localhost',
-      port: parseInt(redisUrl.port) || 6379,
-      password: redisUrl.password || undefined,
-      db: redisUrl.pathname ? parseInt(redisUrl.pathname.slice(1)) || 0 : 0,
-    };
-  } catch (error) {
-    throw new Error(`Invalid Redis URL: ${url}`);
-  }
-};
-
-// Memory cache operations
-const memoryGet = (key: string): any => {
-  const item = memoryCache.get(key);
-  if (!item) return null;
-  
-  if (item.expiry < Date.now()) {
-    memoryCache.delete(key);
-    return null;
-  }
-  
-  return item.value;
-};
-
-const memorySet = (key: string, value: any, ttlSeconds: number): void => {
-  const expiry = Date.now() + (ttlSeconds * 1000);
-  memoryCache.set(key, { value, expiry });
-};
-
-const memoryDelete = (key: string): boolean => {
-  return memoryCache.delete(key);
-};
-
-// Get data from cache (Redis or Memory)
-export const getCachedData = async (key: string): Promise<any> => {
-  const startTime = Date.now();
-  
-  try {
-    if (useRedis && redis) {
-      const data = await redis.get(key);
-      const duration = Date.now() - startTime;
-      
-      if (data) {
-        logger.debug('Redis cache hit', { key, duration: `${duration}ms` });
-        return JSON.parse(data);
-      } else {
-        logger.debug('Redis cache miss', { key, duration: `${duration}ms` });
-        return null;
-      }
-    } else {
-      // Fallback to memory cache
-      const data = memoryGet(key);
-      const duration = Date.now() - startTime;
-      
-      if (data) {
-        logger.debug('Memory cache hit', { key, duration: `${duration}ms` });
-        return data;
-      } else {
-        logger.debug('Memory cache miss', { key, duration: `${duration}ms` });
-        return null;
-      }
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Cache get error', { error: errorMessage, key });
-    
-    // Fallback to memory cache if Redis fails
-    if (useRedis) {
-      const data = memoryGet(key);
-      if (data) {
-        logger.debug('Memory cache fallback hit', { key });
-        return data;
-      }
-    }
-    
-    return null;
-  }
-};
-
-// Set data in cache (Redis or Memory)
-export const setCachedData = async (
-  key: string,
-  data: any,
-  ttl: number = env.CACHE_TTL
-): Promise<void> => {
-  const startTime = Date.now();
-  
-  try {
-    if (useRedis && redis) {
-      const serializedData = JSON.stringify(data);
-      await redis.setex(key, ttl, serializedData);
-      const duration = Date.now() - startTime;
-      
-      logger.debug('Redis cache set', { 
-        key, 
-        ttl, 
-        size: `${serializedData.length} bytes`,
-        duration: `${duration}ms`,
-      });
-    } else {
-      // Fallback to memory cache
-      memorySet(key, data, ttl);
-      const duration = Date.now() - startTime;
-      
-      logger.debug('Memory cache set', { 
-        key, 
-        ttl, 
-        duration: `${duration}ms`,
-      });
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Cache set error', { error: errorMessage, key, ttl });
-    
-    // Fallback to memory cache if Redis fails
-    if (useRedis) {
-      memorySet(key, data, ttl);
-      logger.debug('Memory cache fallback set', { key });
-    }
-  }
-};
-
-// Delete data from cache
-export const deleteCachedData = async (key: string): Promise<void> => {
-  try {
-    if (useRedis && redis) {
-      const result = await redis.del(key);
-      logger.debug('Redis cache delete', { key, deleted: result > 0 });
-    } else {
-      const deleted = memoryDelete(key);
-      logger.debug('Memory cache delete', { key, deleted });
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Cache delete error', { error: errorMessage, key });
-    
-    // Fallback to memory cache
-    if (useRedis) {
-      memoryDelete(key);
-    }
-  }
-};
-
-// Get cache statistics
-export const getCacheStats = async (): Promise<any> => {
-  try {
-    if (useRedis && redis) {
-      const info = await redis.info('memory');
-      const keyCount = await redis.dbsize();
-      
-      return {
-        available: true,
-        type: 'redis',
-        keyCount,
-        memoryInfo: info,
-      };
-    } else {
-      return {
-        available: true,
-        type: 'memory',
-        keyCount: memoryCache.size,
-        memoryUsage: `${memoryCache.size} items`,
-      };
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Cache stats error', { error: errorMessage });
-    return { 
-      available: false, 
-      type: 'none',
-      error: errorMessage 
-    };
-  }
-};
-
-// Check cache type
-export const getCacheType = (): 'redis' | 'memory' | 'none' => {
-  if (useRedis && redis) return 'redis';
-  if (memoryCache.size >= 0) return 'memory';
-  return 'none';
 };
 
 // Initialize cache on module load

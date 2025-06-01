@@ -95,54 +95,8 @@ prisma.$use(async (params, next) => {
   }
 });
 
-// Middleware for soft delete (if you implement soft delete)
-prisma.$use(async (params, next) => {
-  // Handle soft delete for specific models
-  const softDeleteModels = ['User', 'Article', 'Comment'];
-  
-  if (softDeleteModels.includes(params.model || '')) {
-    if (params.action === 'delete') {
-      // Convert delete to update with deletedAt field
-      params.action = 'update';
-      params.args.data = { deletedAt: new Date() };
-    }
-    
-    if (params.action === 'deleteMany') {
-      // Convert deleteMany to updateMany with deletedAt field
-      params.action = 'updateMany';
-      params.args.data = { deletedAt: new Date() };
-    }
-    
-    // Filter out soft deleted records for read operations
-    if (params.action === 'findMany' || params.action === 'findFirst') {
-      if (!params.args) {
-        params.args = {};
-      }
-      if (!params.args.where) {
-        params.args.where = {};
-      }
-      params.args.where.deletedAt = null;
-    }
-    
-    if (params.action === 'findUnique') {
-      if (!params.args) {
-        params.args = {};
-      }
-      if (!params.args.where) {
-        params.args.where = {};
-      }
-      // For findUnique, we need to be careful as it expects unique fields
-      // You might want to handle this differently based on your schema
-    }
-  }
-  
-  return next(params);
-});
-
-// Connection error handlers
-prisma.$on('error', (e) => {
-  console.error('Prisma error event:', e);
-});
+// Connection error handlers - removed as $on('error') is not available in all Prisma versions
+// Instead, we handle errors in individual operations
 
 // Handle uncaught database errors
 process.on('unhandledRejection', (reason, promise) => {
