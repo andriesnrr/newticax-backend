@@ -67,8 +67,10 @@ export const cacheMiddleware = (options: CacheOptions = {}) => {
       // Cache miss - continue to route handler
       res.setHeader('X-Cache-Status', 'MISS');
       
+      // Store original json method
+      const originalJson = res.json.bind(res);
+      
       // Override res.json to cache the response
-      const originalJson = res.json;
       res.json = function(data: any) {
         // Only cache successful responses
         if (res.statusCode >= 200 && res.statusCode < 300) {
@@ -86,7 +88,7 @@ export const cacheMiddleware = (options: CacheOptions = {}) => {
           });
         }
 
-        return originalJson.call(this, data);
+        return originalJson(data);
       };
 
       next();
@@ -127,12 +129,9 @@ export const invalidateCache = (patterns: string[]) => {
     // Store patterns for post-response invalidation
     (res as any).cacheInvalidationPatterns = patterns;
     
-    // Override res.end to invalidate cache after response
-    const originalEnd = res.end;
-    res.end = function(chunk: any, encoding: any) {
-      const result = originalEnd.call(this, chunk, encoding);
-      
-      // Invalidate cache patterns asynchronously
+    // Use 'finish' event instead of overriding res.end
+    res.on('finish', () => {
+      // Invalidate cache patterns asynchronously only on successful responses
       if (res.statusCode >= 200 && res.statusCode < 300) {
         Promise.all(
           patterns.map(pattern => {
@@ -142,15 +141,168 @@ export const invalidateCache = (patterns: string[]) => {
               method: req.method, 
               url: req.originalUrl 
             });
+            // Example: deleteCachedPattern(pattern)
           })
         ).catch(error => {
           logger.error('Cache invalidation error', { error, patterns });
         });
       }
-      
-      return result;
-    };
+    });
     
     next();
+  };
+};
+
+// Advanced cache middleware with conditional caching
+export const conditionalCache = (options: {
+  ttl?: number;
+  condition: (req: Request, res: Response, data?: any) => boolean;
+  keyGenerator?: (req: Request) => string;
+  onHit?: (key: string, data: any) => void;
+  onMiss?: (key: string) => void;
+  onSet?: (key: string, data: any, ttl: number) => void;
+}) => {
+  const {
+    ttl = 300,
+    condition,
+    keyGenerator = defaultKeyGenerator,
+    onHit,
+    onMiss,
+    onSet,
+  } = options;
+
+  return async (req: Request, res: Response, next: NextFunction) => {
+    // Only cache GET requests
+    if (req.method !== 'GET') {
+      return next();
+    }
+
+    try {
+      const cacheKey = keyGenerator(req);
+
+      // Try to get from cache
+      const cachedData = await getCachedData(cacheKey);
+      
+      if (cachedData && condition(req, res, cachedData)) {
+        res.setHeader('X-Cache-Status', 'HIT');
+        res.setHeader('X-Cache-Key', cacheKey);
+        
+        if (onHit) {
+          onHit(cacheKey, cachedData);
+        }
+        
+        logger.debug('Conditional cache hit', { key: cacheKey });
+        return res.json(cachedData);
+      }
+
+      if (!cachedData && onMiss) {
+        onMiss(cacheKey);
+      }
+
+      // Cache miss - continue to route handler
+      res.setHeader('X-Cache-Status', 'MISS');
+      
+      // Store original json method
+      const originalJson = res.json.bind(res);
+      
+      // Override res.json to cache the response conditionally
+      res.json = function(data: any) {
+        // Only cache if condition is met and response is successful
+        if (res.statusCode >= 200 && res.statusCode < 300 && condition(req, res, data)) {
+          setCachedData(cacheKey, data, ttl).catch(error => {
+            logger.error('Conditional cache set error', { error, cacheKey });
+          });
+          
+          if (onSet) {
+            onSet(cacheKey, data, ttl);
+          }
+          
+          logger.debug('Conditional response cached', { key: cacheKey, ttl });
+        }
+
+        return originalJson(data);
+      };
+
+      next();
+    } catch (error) {
+      logger.error('Conditional cache middleware error', { error, url: req.originalUrl });
+      next();
+    }
+  };
+};
+
+// Cache warming middleware (preload cache with data)
+export const warmCache = (keys: string[], dataLoader: (key: string) => Promise<any>, ttl: number = 3600) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    // Don't block the request, warm cache in background
+    Promise.all(
+      keys.map(async (key) => {
+        try {
+          const cached = await getCachedData(key);
+          if (!cached) {
+            const data = await dataLoader(key);
+            await setCachedData(key, data, ttl);
+            logger.debug('Cache warmed', { key });
+          }
+        } catch (error) {
+          logger.error('Cache warming error', { error, key });
+        }
+      })
+    ).catch(error => {
+      logger.error('Cache warming failed', { error, keys });
+    });
+
+    next();
+  };
+};
+
+// Cache statistics middleware
+export const cacheStats = () => {
+  const stats = {
+    hits: 0,
+    misses: 0,
+    errors: 0,
+    startTime: Date.now(),
+  };
+
+  return {
+    middleware: (req: Request, res: Response, next: NextFunction) => {
+      const startTime = Date.now();
+      
+      // Increment miss by default
+      stats.misses++;
+      
+      // Listen for cache hit header
+      const originalSetHeader = res.setHeader.bind(res);
+      res.setHeader = function(name: string, value: string | string[]) {
+        if (name === 'X-Cache-Status') {
+          if (value === 'HIT') {
+            stats.hits++;
+            stats.misses--; // Remove the default miss count
+          }
+        }
+        return originalSetHeader(name, value);
+      };
+
+      // Track errors
+      res.on('error', () => {
+        stats.errors++;
+      });
+
+      next();
+    },
+    
+    getStats: () => ({
+      ...stats,
+      hitRate: stats.hits / (stats.hits + stats.misses) || 0,
+      uptime: Date.now() - stats.startTime,
+    }),
+    
+    reset: () => {
+      stats.hits = 0;
+      stats.misses = 0;
+      stats.errors = 0;
+      stats.startTime = Date.now();
+    },
   };
 };

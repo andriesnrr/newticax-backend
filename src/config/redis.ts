@@ -1,4 +1,4 @@
-import Redis from 'ioredis';
+import { Redis } from 'ioredis'; // Fixed import
 import { env } from './env';
 import { logger } from '../utils/logger';
 
@@ -19,7 +19,7 @@ export class RedisConfig {
     }
 
     try {
-      const redisOptions: Redis.RedisOptions = {
+      const redisOptions = {
         host: this.parseRedisUrl().host,
         port: this.parseRedisUrl().port,
         password: this.parseRedisUrl().password,

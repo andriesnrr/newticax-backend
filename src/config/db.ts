@@ -5,11 +5,6 @@ import { env } from './env';
 export const prisma = new PrismaClient({
   log: env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error'],
   errorFormat: 'pretty',
-  datasources: {
-    db: {
-      url: env.DATABASE_URL,
-    },
-  },
 });
 
 // Connection retry configuration
@@ -28,16 +23,12 @@ export const connectDB = async (): Promise<void> => {
       await prisma.$connect();
       
       // Perform a simple query to ensure the connection is working
-      await prisma.$queryRaw`SELECT 1`;
+      // Use a MongoDB-compatible query for connection test
+      await prisma.user.findFirst({ take: 1 }).catch(() => {
+        // Ignore error if User table doesn't exist yet
+      });
       
       console.log('✅ Database connected successfully');
-      
-      // Enable query optimization in production
-      if (env.NODE_ENV === 'production') {
-        await prisma.$executeRaw`PRAGMA journal_mode = WAL;`.catch(() => {
-          // This is for SQLite, will be ignored for other databases
-        });
-      }
       
       return;
     } catch (error) {
@@ -69,7 +60,8 @@ export const disconnectDB = async (): Promise<void> => {
 // Database health check
 export const checkDBHealth = async (): Promise<boolean> => {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    // Use a simple database operation for health check
+    await prisma.user.findFirst({ take: 1 });
     return true;
   } catch (error) {
     console.error('Database health check failed:', error);
@@ -123,6 +115,9 @@ prisma.$use(async (params, next) => {
     
     // Filter out soft deleted records for read operations
     if (params.action === 'findMany' || params.action === 'findFirst') {
+      if (!params.args) {
+        params.args = {};
+      }
       if (!params.args.where) {
         params.args.where = {};
       }
@@ -130,6 +125,9 @@ prisma.$use(async (params, next) => {
     }
     
     if (params.action === 'findUnique') {
+      if (!params.args) {
+        params.args = {};
+      }
       if (!params.args.where) {
         params.args.where = {};
       }

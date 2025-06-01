@@ -4,8 +4,8 @@ import { AppError } from '../utils/errorHandler';
 import { logger, logSecurityEvent } from '../utils/logger';
 import { env } from '../config/env';
 
-// IP whitelist for admin access (optional)
-const ADMIN_IP_WHITELIST = env.ADMIN_IP_WHITELIST?.split(',') || [];
+// IP whitelist for admin access (optional) - Add to env if needed
+const ADMIN_IP_WHITELIST = process.env.ADMIN_IP_WHITELIST?.split(',') || [];
 
 // Suspicious patterns for detection
 const SUSPICIOUS_PATTERNS = [
@@ -140,7 +140,7 @@ export const adminIPWhitelist = (req: Request, res: Response, next: NextFunction
     return next(); // No whitelist configured
   }
 
-  const clientIP = req.ip || req.connection.remoteAddress;
+  const clientIP = req.ip || req.socket.remoteAddress;
   
   if (!clientIP || !ADMIN_IP_WHITELIST.includes(clientIP)) {
     logSecurityEvent('Admin Access from Non-Whitelisted IP', {
@@ -223,8 +223,8 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
     return next();
   }
 
-  const token = req.headers['x-csrf-token'] || req.body._csrf;
-  const sessionToken = req.session?.csrfToken;
+  const token = req.headers['x-csrf-token'] as string || req.body._csrf;
+  const sessionToken = (req as any).session?.csrfToken;
 
   if (!token || !sessionToken || token !== sessionToken) {
     logSecurityEvent('CSRF Token Mismatch', {

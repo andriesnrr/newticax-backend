@@ -1,7 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { Request } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errorHandler';
@@ -162,7 +162,7 @@ export const uploadAvatar = multer({
 // File cleanup middleware (removes uploaded files on error)
 export const cleanupFiles = (req: Request, res: Response, next: NextFunction) => {
   const cleanup = () => {
-    const files = [];
+    const files: Express.Multer.File[] = [];
     
     if (req.file) files.push(req.file);
     if (req.files) {
@@ -181,22 +181,145 @@ export const cleanupFiles = (req: Request, res: Response, next: NextFunction) =>
     
     files.forEach(file => {
       if (file.path && fs.existsSync(file.path)) {
-        fs.unlinkSync(file.path);
-        logger.info('Cleanup: File removed', { path: file.path });
+        try {
+          fs.unlinkSync(file.path);
+          logger.info('Cleanup: File removed', { path: file.path });
+        } catch (error) {
+          logger.error('Cleanup: Failed to remove file', { 
+            path: file.path, 
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
       }
     });
   };
 
-  // Override res.end to cleanup files on error
-  const originalEnd = res.end;
-  res.end = function(chunk: any, encoding: any) {
+  // Store cleanup function for later use
+  (res as any).cleanupFiles = cleanup;
+
+  // Use 'finish' event instead of overriding res.end
+  res.on('finish', () => {
+    // Cleanup files if response status indicates an error
     if (res.statusCode >= 400) {
       cleanup();
     }
-    return originalEnd.call(this, chunk, encoding);
-  };
+  });
+
+  // Also listen to 'close' event for aborted requests
+  res.on('close', () => {
+    // Always cleanup on connection close/abort
+    cleanup();
+  });
 
   next();
+};
+
+// Alternative cleanup middleware using error handler
+export const cleanupFilesOnError = (req: Request, res: Response, next: NextFunction) => {
+  const cleanup = () => {
+    const files: Express.Multer.File[] = [];
+    
+    if (req.file) files.push(req.file);
+    if (req.files) {
+      if (Array.isArray(req.files)) {
+        files.push(...req.files);
+      } else {
+        Object.values(req.files).forEach(fileArray => {
+          if (Array.isArray(fileArray)) {
+            files.push(...fileArray);
+          } else {
+            files.push(fileArray);
+          }
+        });
+      }
+    }
+    
+    files.forEach(file => {
+      if (file.path && fs.existsSync(file.path)) {
+        try {
+          fs.unlinkSync(file.path);
+          logger.info('Error cleanup: File removed', { path: file.path });
+        } catch (error) {
+          logger.error('Error cleanup: Failed to remove file', { 
+            path: file.path, 
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }
+    });
+  };
+
+  // Store cleanup function on request object
+  (req as any).cleanupFiles = cleanup;
+  
+  next();
+};
+
+// Manual cleanup function for use in route handlers
+export const manualCleanup = (req: Request): void => {
+  if ((req as any).cleanupFiles && typeof (req as any).cleanupFiles === 'function') {
+    (req as any).cleanupFiles();
+  }
+};
+
+// File upload error handler middleware
+export const handleUploadErrors = (req: Request, res: Response, next: NextFunction) => {
+  // This middleware should be used after multer middleware
+  // to catch and handle multer-specific errors
+  return (error: any, req: Request, res: Response, next: NextFunction) => {
+    if (error instanceof multer.MulterError) {
+      let message = 'File upload error';
+      let statusCode = 400;
+
+      switch (error.code) {
+        case 'LIMIT_FILE_SIZE':
+          message = `File too large. Maximum size is ${Math.round(env.MAX_FILE_SIZE / (1024 * 1024))}MB`;
+          break;
+        case 'LIMIT_FILE_COUNT':
+          message = 'Too many files uploaded';
+          break;
+        case 'LIMIT_UNEXPECTED_FILE':
+          message = 'Unexpected file field name';
+          break;
+        case 'LIMIT_PART_COUNT':
+          message = 'Too many form parts';
+          break;
+        case 'LIMIT_FIELD_KEY':
+          message = 'Field name too long';
+          break;
+        case 'LIMIT_FIELD_VALUE':
+          message = 'Field value too long';
+          break;
+        case 'LIMIT_FIELD_COUNT':
+          message = 'Too many form fields';
+          break;
+        default:
+          message = error.message || 'File upload error';
+      }
+
+      logger.error('Multer upload error', {
+        code: error.code,
+        message: error.message,
+        field: error.field,
+        ip: req.ip,
+        userId: (req as any).user?.id,
+      });
+
+      // Cleanup files if they were uploaded before error
+      if ((res as any).cleanupFiles) {
+        (res as any).cleanupFiles();
+      }
+
+      return res.status(statusCode).json({
+        success: false,
+        message,
+        code: error.code,
+      });
+    }
+
+    // If it's not a multer error, pass it to the next error handler
+    next(error);
+  };
 };
 
 // Get file URL helper
@@ -208,7 +331,65 @@ export const getFileUrl = (filepath: string): string => {
 export const deleteFile = (filepath: string): void => {
   const fullPath = path.join(uploadDir, filepath);
   if (fs.existsSync(fullPath)) {
-    fs.unlinkSync(fullPath);
-    logger.info('File deleted', { path: fullPath });
+    try {
+      fs.unlinkSync(fullPath);
+      logger.info('File deleted', { path: fullPath });
+    } catch (error) {
+      logger.error('Failed to delete file', { 
+        path: fullPath, 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
   }
+};
+
+// Get file info helper
+export const getFileInfo = (filepath: string): { exists: boolean; size?: number; mtime?: Date } => {
+  const fullPath = path.join(uploadDir, filepath);
+  try {
+    if (fs.existsSync(fullPath)) {
+      const stats = fs.statSync(fullPath);
+      return {
+        exists: true,
+        size: stats.size,
+        mtime: stats.mtime,
+      };
+    }
+  } catch (error) {
+    logger.error('Failed to get file info', { 
+      path: fullPath, 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+  
+  return { exists: false };
+};
+
+// Validate uploaded file
+export const validateUploadedFile = (file: Express.Multer.File): { valid: boolean; error?: string } => {
+  // Check file size
+  if (file.size > env.MAX_FILE_SIZE) {
+    return {
+      valid: false,
+      error: `File size ${Math.round(file.size / (1024 * 1024))}MB exceeds limit of ${Math.round(env.MAX_FILE_SIZE / (1024 * 1024))}MB`,
+    };
+  }
+
+  // Check file type
+  if (!allowedTypes.includes(file.mimetype)) {
+    return {
+      valid: false,
+      error: `File type ${file.mimetype} is not allowed`,
+    };
+  }
+
+  // Check if file actually exists on disk
+  if (file.path && !fs.existsSync(file.path)) {
+    return {
+      valid: false,
+      error: 'Uploaded file not found on disk',
+    };
+  }
+
+  return { valid: true };
 };

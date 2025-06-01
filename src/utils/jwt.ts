@@ -1,23 +1,31 @@
 import jwt from 'jsonwebtoken';
 import { Response } from 'express';
-import { env } from '../config/env'; //
-import { Role } from '@prisma/client'; // Impor Role jika Anda ingin menyimpannya di token
+import { env } from '../config/env';
+import { Role } from '@prisma/client';
+
+// Simple token blacklist storage (in production, use Redis)
+const blacklistedTokens = new Set<string>();
+
+// Auto cleanup expired tokens every hour
+setInterval(() => {
+  // In a real application, you'd want to clean up based on token expiry
+  // For now, we'll clear the set if it gets too large
+  if (blacklistedTokens.size > 10000) {
+    blacklistedTokens.clear();
+  }
+}, 60 * 60 * 1000); // 1 hour
 
 // Definisikan tipe untuk payload JWT Anda
-// Ekspor interface ini agar bisa digunakan di tempat lain (misalnya di types/index.ts atau passport.ts)
 export interface JwtCustomPayload { 
   userId: string;
-  role?: Role; // Jadikan role opsional, karena mungkin tidak semua token memilikinya
-  // Tambahkan properti standar JWT jika perlu diakses (biasanya ditangani oleh pustaka jwt)
+  role?: Role;
   iat?: number;
   exp?: number;
-  // Tambahkan properti lain yang Anda simpan di JWT
-  [key: string]: any; // Untuk properti tambahan jika ada
+  [key: string]: any;
 }
 
 // Generate JWT
-// Modifikasi untuk menerima role sebagai argumen kedua (opsional)
-export const generateToken = (userId: string, userRole?: Role): string => { //
+export const generateToken = (userId: string, userRole?: Role): string => {
   const payload: JwtCustomPayload = { 
     userId,
   };
@@ -25,35 +33,61 @@ export const generateToken = (userId: string, userRole?: Role): string => { //
     payload.role = userRole;
   }
   
-  // Ambil durasi dari env.COOKIE_EXPIRES (dalam milidetik) dan konversi ke format string untuk jwt.sign
-  const expiresInMilliseconds = env.COOKIE_EXPIRES; //
-  const expiresInSeconds = Math.floor(expiresInMilliseconds / 1000); // Konversi ke detik
+  const expiresInMilliseconds = env.COOKIE_EXPIRES;
+  const expiresInSeconds = Math.floor(expiresInMilliseconds / 1000);
   
-  return jwt.sign(payload, env.JWT_SECRET, { //
-    expiresIn: `${expiresInSeconds}s`, // Format 'Ns' untuk detik, 'Nm' untuk menit, 'Nh' untuk jam, 'Nd' untuk hari
+  return jwt.sign(payload, env.JWT_SECRET, {
+    expiresIn: `${expiresInSeconds}s`,
   });
 };
 
-// Verify JWT (berguna jika Anda perlu memverifikasi token secara manual di luar Passport)
+// Verify JWT
 export const verifyToken = (token: string): JwtCustomPayload | null => {
   try {
-    // Pastikan untuk mengetik hasil verify dengan benar
-    return jwt.verify(token, env.JWT_SECRET) as JwtCustomPayload; //
+    // Check if token is blacklisted
+    if (blacklistedTokens.has(token)) {
+      return null;
+    }
+    
+    return jwt.verify(token, env.JWT_SECRET) as JwtCustomPayload;
   } catch (error) {
-    // Lebih baik tidak console.error di sini kecuali untuk debugging mendalam,
-    // biarkan pemanggil yang menangani error jika perlu.
-    // console.error('Invalid token during verification:', error);
     return null;
   }
 };
 
-// Fungsi untuk membersihkan cookie token
+// Blacklist token - EXPORTED
+export const blacklistToken = (token: string): void => {
+  blacklistedTokens.add(token);
+  
+  // Optional: Remove token after its natural expiry
+  // In production, use Redis with TTL for better performance
+  setTimeout(() => {
+    blacklistedTokens.delete(token);
+  }, env.COOKIE_EXPIRES);
+};
+
+// Check if token is blacklisted - EXPORTED
+export const isTokenBlacklisted = (token: string): boolean => {
+  return blacklistedTokens.has(token);
+};
+
+// Get blacklist size (for debugging/monitoring)
+export const getBlacklistSize = (): number => {
+  return blacklistedTokens.size;
+};
+
+// Clear all blacklisted tokens (admin function)
+export const clearBlacklist = (): void => {
+  blacklistedTokens.clear();
+};
+
+// Clear token cookie - EXPORTED
 export const clearToken = (res: Response): void => {
-  res.cookie('token', '', { // Set token menjadi string kosong untuk menghapusnya
+  res.cookie('token', '', {
     httpOnly: true,
-    secure: env.NODE_ENV === 'production', //
-    expires: new Date(0), // Set tanggal kedaluwarsa di masa lalu untuk segera menghapus cookie
-    sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none', // Sesuaikan dengan pengaturan cookie Anda //
-    path: '/', // Umumnya path cookie adalah root, sesuaikan jika berbeda
+    secure: env.NODE_ENV === 'production',
+    expires: new Date(0),
+    sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none',
+    path: '/',
   });
 };

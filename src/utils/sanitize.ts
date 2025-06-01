@@ -1,4 +1,3 @@
-import DOMPurify from 'isomorphic-dompurify';
 import { logger } from './logger';
 
 interface SanitizeOptions {
@@ -6,6 +5,18 @@ interface SanitizeOptions {
   maxLength?: number;
   stripTags?: boolean;
 }
+
+// Simple HTML sanitizer without DOMPurify for server-side
+const sanitizeHtml = (input: string, allowedTags: string[] = []): string => {
+  if (allowedTags.length === 0) {
+    // Strip all HTML tags
+    return input.replace(/<[^>]*>/g, '');
+  }
+  
+  // Allow only specific tags
+  const tagRegex = new RegExp(`<(?!/?(?:${allowedTags.join('|')})\\b)[^>]*>`, 'gi');
+  return input.replace(tagRegex, '');
+};
 
 // Sanitize individual string
 export const sanitizeString = (
@@ -22,7 +33,7 @@ export const sanitizeString = (
 
   // Remove or escape HTML
   if (!allowHtml && stripTags) {
-    sanitized = DOMPurify.sanitize(sanitized, { ALLOWED_TAGS: [] });
+    sanitized = sanitizeHtml(sanitized, []);
   } else if (!allowHtml) {
     sanitized = sanitized
       .replace(/&/g, '&amp;')
@@ -32,10 +43,7 @@ export const sanitizeString = (
       .replace(/'/g, '&#x27;');
   } else {
     // Allow limited HTML tags
-    sanitized = DOMPurify.sanitize(sanitized, {
-      ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'p', 'br'],
-      ALLOWED_ATTR: [],
-    });
+    sanitized = sanitizeHtml(sanitized, ['b', 'i', 'em', 'strong', 'p', 'br']);
   }
 
   // Trim whitespace

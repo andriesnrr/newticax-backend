@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Language, Role, Provider } from '@prisma/client';
+import { logger } from './logger'; // Import logger yang hilang
 
 // Base validation schemas
 export const emailSchema = z
