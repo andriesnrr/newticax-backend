@@ -1,14 +1,17 @@
+[variables]
+NODE_ENV = "production"
+
+[providers]
+node = "18"
+
 [phases.setup]
-nixPkgs = ['nodejs-18_x']
+nixPkgs = ["nodejs", "pnpm"]
 
 [phases.install]
-cmds = [
-  'npm ci --only=production',
-  'npx prisma generate'
-]
+cmd = "pnpm install --frozen-lockfile --prod"
 
-[phases.build]
-cmds = ['npm run build']
+[phases.build] 
+cmd = "pnpm run build"
 
 [start]
-cmd = 'npm start'
+cmd = "pnpm start"
