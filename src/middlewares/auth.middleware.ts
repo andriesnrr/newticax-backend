@@ -2,7 +2,7 @@ import { Response, NextFunction, RequestHandler } from 'express';
 import { prisma } from '../config/db';
 import { AppError } from '../utils/errorHandler';
 import { verifyToken } from '../utils/jwt';
-import { AuthRequest, User, Role as AppRole } from '../types';
+import { AuthRequest, User } from '../types';
 
 // Middleware to protect routes requiring authentication
 export const protect: RequestHandler = async (req, res, next) => {
@@ -13,7 +13,7 @@ export const protect: RequestHandler = async (req, res, next) => {
     // Get token from header or cookie
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
-    } else if (req.cookies.token) {
+    } else if (req.cookies?.token) {
       token = req.cookies.token;
     }
 
@@ -60,10 +60,10 @@ export const isAdmin: RequestHandler = (req, res, next) => {
     return next(new AppError('Authentication required', 401));
   }
 
-  if (authReq.user.role === AppRole.ADMIN) {
+  if (authReq.user.role === 'ADMIN') {
     next();
   } else {
-    res.status(403).json({ 
+    return res.status(403).json({ 
       success: false, 
       message: 'Access denied: Admin privileges required' 
     });
@@ -78,10 +78,10 @@ export const isAuthor: RequestHandler = (req, res, next) => {
     return next(new AppError('Authentication required', 401));
   }
 
-  if (authReq.user.role === AppRole.ADMIN || authReq.user.role === AppRole.AUTHOR) {
+  if (authReq.user.role === 'ADMIN' || authReq.user.role === 'AUTHOR') {
     next();
   } else {
-    res.status(403).json({ 
+    return res.status(403).json({ 
       success: false, 
       message: 'Access denied: Author or Admin privileges required' 
     });
@@ -89,7 +89,7 @@ export const isAuthor: RequestHandler = (req, res, next) => {
 };
 
 // Middleware to check if user owns a resource
-export const isOwner = (modelNameInput: keyof typeof prisma): RequestHandler => { 
+export const isOwner = (modelName: string): RequestHandler => { 
   return async (req, res, next) => {
     const authReq = req as AuthRequest;
     
@@ -103,9 +103,9 @@ export const isOwner = (modelNameInput: keyof typeof prisma): RequestHandler => 
         return next(new AppError('Resource ID not provided in parameters', 400));
       }
 
-      const modelName: string = String(modelNameInput); 
       const capitalizedModelName = modelName.charAt(0).toUpperCase() + modelName.slice(1);
 
+      // Use dynamic model access with type assertion
       const resource = await (prisma as any)[modelName].findUnique({
         where: { id: resourceId },
       });
@@ -116,7 +116,7 @@ export const isOwner = (modelNameInput: keyof typeof prisma): RequestHandler => 
 
       const ownerField = resource.authorId || resource.userId;
 
-      if (ownerField !== authReq.user.id && authReq.user.role !== AppRole.ADMIN) {
+      if (ownerField !== authReq.user.id && authReq.user.role !== 'ADMIN') {
         return next(new AppError(`Not authorized to access or modify this ${modelName}`, 403));
       }
 
@@ -136,7 +136,7 @@ export const optionalAuth: RequestHandler = async (req, res, next) => {
     // Get token from header or cookie
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
-    } else if (req.cookies.token) {
+    } else if (req.cookies?.token) {
       token = req.cookies.token;
     }
 

@@ -1,38 +1,40 @@
 import { Request } from 'express';
-// Impor User dan enum lainnya langsung dari @prisma/client.
-// Ini adalah cara paling pasti untuk mendapatkan tipe yang benar berdasarkan skema Anda.
+// Import User and enum directly from @prisma/client to ensure consistency
 import { 
     User as PrismaClientUser, 
     Language as PrismaLanguageEnum,
     Role as PrismaRoleEnum,
-    Provider as PrismaProviderEnum
-} from '@prisma/client'; // Pastikan path ini benar dan Prisma Client sudah di-generate dengan benar.
+    Provider as PrismaProviderEnum,
+    Preference
+} from '@prisma/client';
 
-// 1. Definisikan tipe User utama yang akan digunakan di seluruh aplikasi, berdasarkan PrismaClientUser.
-// Tipe ini HARUS sudah lengkap dan mencakup field 'username' dan SEMUA field lain dari model User Anda
-// setelah 'prisma generate' berhasil dengan schema.prisma yang sudah menyertakan 'username String @unique'.
-export type User = PrismaClientUser;
+// Define the complete User type that includes all fields from Prisma
+export type User = PrismaClientUser & {
+  preference?: Preference | null;
+  _count?: {
+    articles: number;
+    bookmarks: number;
+    likes: number;
+    comments: number;
+  };
+};
 
-// 2. Definisikan AuthRequest yang menyertakan properti user opsional.
-// Ini akan digunakan oleh middleware 'protect' untuk menambahkan user yang terautentikasi ke objek request.
+// AuthRequest extends Express Request with optional user
 export interface AuthRequest extends Request {
-  // Pastikan 'User' di sini adalah tipe yang benar-benar lengkap dari Prisma.
-  // Jika 'User' adalah alias dari 'PrismaClientUser', ini seharusnya sudah benar.
-  user?: User; 
+  user?: User;
 }
 
-// 3. Re-export enum dari Prisma agar bisa diimpor dari '~/types' jika lebih mudah dan konsisten.
+// Re-export enums for convenience
 export { PrismaLanguageEnum as Language };
 export { PrismaRoleEnum as Role };
 export { PrismaProviderEnum as Provider };
 
-// 4. Tipe Input untuk berbagai operasi (DTOs - Data Transfer Objects)
-
+// Input DTOs
 export interface RegisterInput {
   name: string;
   email: string;
   password: string;
-  username: string; // Dijadikan wajib karena UserCreateInput dari Prisma akan membutuhkannya.
+  username: string;
   language?: PrismaLanguageEnum; 
 }
 
@@ -107,7 +109,6 @@ export interface PreferenceInput {
   emailUpdates?: boolean;
 }
 
-// Impor JwtCustomPayload dari utils/jwt.ts
-import { JwtCustomPayload } from '../utils/jwt'; //
-// Anda bisa menggunakan alias jika mau, atau langsung gunakan JwtCustomPayload di passport.ts
-export type MyCustomJwtPayload = JwtCustomPayload; 
+// Import JwtCustomPayload from utils/jwt.ts
+import { JwtCustomPayload } from '../utils/jwt';
+export type MyCustomJwtPayload = JwtCustomPayload;

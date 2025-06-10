@@ -1,4 +1,4 @@
-import { Router, RequestHandler } from 'express';
+import { Router } from 'express';
 import {
   registerHandler,
   loginHandler,
@@ -15,23 +15,24 @@ import {
   validateLogin, 
   validateProfileUpdate, 
   validatePasswordUpdate 
-} from '../middlewares/validate.middleware';
+} from './validate.middleware';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
 console.log('🔐 Auth routes loaded - JWT only mode');
 
 // Regular auth routes (JWT-only, no OAuth)
-router.post('/register', validateRegister, registerHandler as RequestHandler);
-router.post('/login', validateLogin, loginHandler as RequestHandler);
-router.get('/me', protect, getMeHandler as RequestHandler); 
-router.post('/logout', logoutHandler as RequestHandler);
+router.post('/register', validateRegister, asyncHandler(registerHandler));
+router.post('/login', validateLogin, asyncHandler(loginHandler));
+router.get('/me', protect, asyncHandler(getMeHandler)); 
+router.post('/logout', asyncHandler(logoutHandler));
 
 // Profile routes
-router.put('/profile', protect, validateProfileUpdate, updateProfileHandler as RequestHandler);
-router.put('/password', protect, validatePasswordUpdate, updatePasswordHandler as RequestHandler);
-router.put('/language', protect, updateLanguageHandler as RequestHandler);
-router.put('/preferences', protect, updatePreferenceHandler as RequestHandler);
+router.put('/profile', protect, validateProfileUpdate, asyncHandler(updateProfileHandler));
+router.put('/password', protect, validatePasswordUpdate, asyncHandler(updatePasswordHandler));
+router.put('/language', protect, asyncHandler(updateLanguageHandler));
+router.put('/preferences', protect, asyncHandler(updatePreferenceHandler));
 
 // OAuth disabled routes - return info message
 router.get('/google', (req, res) => {
