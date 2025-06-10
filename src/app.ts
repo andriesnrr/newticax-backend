@@ -2,15 +2,12 @@ import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-// import passport from 'passport'; // DISABLED
-// import session from 'express-session'; // DISABLED
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { connectDB, prisma } from './config/db';
 import { env, validateEnv } from './config/env';
 import routes from './routes';
 import { errorHandler } from './utils/errorHandler';
-// import { setupPassport } from './config/passport'; // DISABLED
 import { startNewsAPIFetcher } from './services/news-api.service';
 import { initializeAdmin } from './services/admin.service';
 import { logger } from './utils/logger';
@@ -61,7 +58,11 @@ app.use(generalLimiter);
 
 // CORS configuration - simplified and permissive
 app.use(cors({
-  origin: true, // Allow all origins for now
+  origin: [
+    'https://newticax.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:3001'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie'],
@@ -82,8 +83,8 @@ app.use(express.urlencoded({
 // Cookie parser with secret
 app.use(cookieParser(env.COOKIE_SECRET));
 
-// PASSPORT & SESSION DISABLED FOR RAILWAY
-console.log('ℹ️ OAuth/Passport disabled for Railway deployment');
+// NO PASSPORT - JWT ONLY AUTHENTICATION
+console.log('ℹ️ Using JWT-only authentication (Passport disabled for Railway)');
 
 // Request logging middleware - simplified
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -127,6 +128,7 @@ app.get('/', (req: Request, res: Response) => {
       api: '/api',
       docs: '/api/docs',
     },
+    auth: 'JWT-only (Passport disabled)',
   });
 });
 
@@ -160,12 +162,13 @@ app.get('/health', async (req: Request, res: Response) => {
       hasCookieSecret: !!env.COOKIE_SECRET,
       hasDatabaseUrl: !!env.DATABASE_URL,
       hasNewsApiKey: !!env.NEWS_API_KEY,
+      authMode: 'JWT-only',
     },
   };
 
   // Test database connection
   try {
-    await prisma.user.findFirst({ take: 1 });
+    await prisma.user.count();
     healthData.services.database = true;
   } catch (error) {
     healthData.status = 'degraded';
@@ -204,7 +207,8 @@ app.get('/api/docs', (req: Request, res: Response) => {
     message: 'NewticaX API Documentation',
     version: '1.0.0',
     baseUrl: `${req.protocol}://${req.get('host')}/api`,
-    note: 'OAuth/Social login temporarily disabled for Railway deployment',
+    authentication: 'JWT Bearer Token or Cookie',
+    note: 'OAuth/Social login disabled for Railway deployment',
     endpoints: {
       auth: {
         register: 'POST /api/auth/register',
@@ -346,6 +350,7 @@ const startServer = async () => {
       console.log(`🌐 Server URL: http://0.0.0.0:${PORT}`);
       console.log(`📋 Health check: http://0.0.0.0:${PORT}/health`);
       console.log(`📚 API docs: http://0.0.0.0:${PORT}/api/docs`);
+      console.log(`🔐 Auth mode: JWT-only (no Passport)`);
       console.log(`🎯 Ready to handle requests!`);
     });
 

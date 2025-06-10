@@ -1,68 +1,106 @@
-import { Response, NextFunction, RequestHandler } from 'express'; // Impor RequestHandler
-import passport from 'passport';
+import { Response, NextFunction, RequestHandler } from 'express';
 import { prisma } from '../config/db';
 import { AppError } from '../utils/errorHandler';
-// Impor AuthRequest, User, dan Role dari types/index.ts.
-// Pastikan 'User' di types/index.ts adalah alias dari PrismaClientUser yang lengkap.
-import { AuthRequest, User, Role as AppRole } from '../types'; 
+import { verifyToken } from '../utils/jwt';
+import { AuthRequest, User, Role as AppRole } from '../types';
 
 // Middleware to protect routes requiring authentication
-// Kita akan mengetik 'protect' sebagai RequestHandler secara eksplisit
-export const protect: RequestHandler = (req, res, next) => {
-  // Karena kita mengetik sebagai RequestHandler, req di sini adalah Request biasa.
-  // Kita akan melakukan cast ke AuthRequest di dalam callback setelah user diautentikasi.
-  const authReq = req as AuthRequest;
+export const protect: RequestHandler = async (req, res, next) => {
+  try {
+    const authReq = req as AuthRequest;
+    let token: string | undefined;
 
-  const callback = (err: any, userFromPassport: User | false | null, info: any): void => {
-    if (err) {
-      return next(err);
+    // Get token from header or cookie
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    } else if (req.cookies.token) {
+      token = req.cookies.token;
     }
-    if (!userFromPassport) {
-      const message = info?.message || 'Authentication failed. Please log in to access this resource.';
-      return next(new AppError(message, 401));
+
+    if (!token) {
+      return next(new AppError('Authentication required. Please log in to access this resource.', 401));
     }
-    // Tetapkan user ke authReq.user (yang sudah diketik sebagai AuthRequest)
-    authReq.user = userFromPassport as User; 
+
+    // Verify token
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return next(new AppError('Invalid or expired token. Please log in again.', 401));
+    }
+
+    // Get user from database
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      include: {
+        preference: true,
+      },
+    });
+
+    if (!user) {
+      return next(new AppError('User no longer exists. Please log in again.', 401));
+    }
+
+    // Remove password from user object
+    const { password, ...userWithoutPassword } = user;
+
+    // Attach user to request
+    authReq.user = userWithoutPassword as User;
+
     next();
-  };
-  passport.authenticate('jwt', { session: false }, callback)(authReq, res, next);
+  } catch (error) {
+    console.error('Auth middleware error:', error);
+    next(new AppError('Authentication failed. Please log in again.', 401));
+  }
 };
 
 // Middleware to restrict access to admin only
-// Ketik sebagai RequestHandler, lalu cast req ke AuthRequest di dalamnya
 export const isAdmin: RequestHandler = (req, res, next) => {
   const authReq = req as AuthRequest;
-  if (authReq.user && authReq.user.role === AppRole.ADMIN) {
+  
+  if (!authReq.user) {
+    return next(new AppError('Authentication required', 401));
+  }
+
+  if (authReq.user.role === AppRole.ADMIN) {
     next();
   } else {
-    res.status(403).json({ success: false, message: 'Access denied: Admin privileges required' });
+    res.status(403).json({ 
+      success: false, 
+      message: 'Access denied: Admin privileges required' 
+    });
   }
 };
 
 // Middleware to restrict access to admin or author
 export const isAuthor: RequestHandler = (req, res, next) => {
   const authReq = req as AuthRequest;
-  if (authReq.user && (authReq.user.role === AppRole.ADMIN || authReq.user.role === AppRole.AUTHOR)) {
+  
+  if (!authReq.user) {
+    return next(new AppError('Authentication required', 401));
+  }
+
+  if (authReq.user.role === AppRole.ADMIN || authReq.user.role === AppRole.AUTHOR) {
     next();
   } else {
-    res.status(403).json({ success: false, message: 'Access denied: Author or Admin privileges required' });
+    res.status(403).json({ 
+      success: false, 
+      message: 'Access denied: Author or Admin privileges required' 
+    });
   }
 };
 
 // Middleware to check if user owns a resource
 export const isOwner = (modelNameInput: keyof typeof prisma): RequestHandler => { 
-  return async (req, res, next) => { // req di sini adalah Request biasa
+  return async (req, res, next) => {
     const authReq = req as AuthRequest;
+    
     try {
       if (!authReq.user) {
-        next(new AppError('User not authenticated', 401));
-        return;
+        return next(new AppError('User not authenticated', 401));
       }
 
       const resourceId = authReq.params.id;
       if (!resourceId) {
-        next(new AppError('Resource ID not provided in parameters', 400));
-        return;
+        return next(new AppError('Resource ID not provided in parameters', 400));
       }
 
       const modelName: string = String(modelNameInput); 
@@ -73,15 +111,13 @@ export const isOwner = (modelNameInput: keyof typeof prisma): RequestHandler => 
       });
 
       if (!resource) {
-        next(new AppError(`${capitalizedModelName} not found`, 404));
-        return;
+        return next(new AppError(`${capitalizedModelName} not found`, 404));
       }
 
       const ownerField = resource.authorId || resource.userId;
 
       if (ownerField !== authReq.user.id && authReq.user.role !== AppRole.ADMIN) {
-        next(new AppError(`Not authorized to access or modify this ${modelName}`, 403));
-        return;
+        return next(new AppError(`Not authorized to access or modify this ${modelName}`, 403));
       }
 
       next();
@@ -89,4 +125,46 @@ export const isOwner = (modelNameInput: keyof typeof prisma): RequestHandler => 
       next(error);
     }
   };
+};
+
+// Optional middleware - checks auth but doesn't require it
+export const optionalAuth: RequestHandler = async (req, res, next) => {
+  try {
+    const authReq = req as AuthRequest;
+    let token: string | undefined;
+
+    // Get token from header or cookie
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    } else if (req.cookies.token) {
+      token = req.cookies.token;
+    }
+
+    if (token) {
+      // Verify token
+      const decoded = verifyToken(token);
+      if (decoded) {
+        // Get user from database
+        const user = await prisma.user.findUnique({
+          where: { id: decoded.userId },
+          include: {
+            preference: true,
+          },
+        });
+
+        if (user) {
+          // Remove password from user object
+          const { password, ...userWithoutPassword } = user;
+          authReq.user = userWithoutPassword as User;
+        }
+      }
+    }
+
+    // Continue regardless of auth status
+    next();
+  } catch (error) {
+    // If optional auth fails, continue without user
+    console.warn('Optional auth failed:', error);
+    next();
+  }
 };
