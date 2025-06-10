@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs'; // Changed from 'bcrypt' to 'bcryptjs'
 import rateLimit from 'express-rate-limit';
 import { prisma } from '../config/db';
 import { generateToken, clearToken, blacklistToken } from '../utils/jwt';
