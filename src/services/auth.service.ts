@@ -1,4 +1,4 @@
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs"; // Changed from 'bcrypt' to 'bcryptjs'
 import { prisma } from "../config/db";
 import { AppError } from "../utils/errorHandler";
 import { LoginInput, RegisterInput } from "../types"; // Pastikan tipe ini sesuai
