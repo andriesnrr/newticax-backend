@@ -34,7 +34,8 @@ export const connectDB = async (): Promise<void> => {
       await Promise.race([connectionPromise, timeoutPromise]);
       
       // Perform a simple query to ensure the connection is working
-      await prisma.user.findFirst({ take: 1 });
+      // Use a different query that doesn't fail on null username
+      await prisma.user.count();
       
       console.log('✅ Database connected successfully');
       console.log(`📊 Database URL: ${env.DATABASE_URL.replace(/\/\/[^:]+:[^@]+@/, '//***:***@')}`);
@@ -85,8 +86,8 @@ export const checkDBHealth = async (): Promise<{
   const startTime = Date.now();
   
   try {
-    // Test with a simple query
-    await prisma.user.findFirst({ take: 1 });
+    // Test with a simple count query instead of findFirst
+    await prisma.user.count();
     const responseTime = Date.now() - startTime;
     
     console.log(`💚 Database health check: OK (${responseTime}ms)`);
@@ -108,7 +109,7 @@ export const checkDBHealth = async (): Promise<{
 };
 
 // Prisma middleware for logging and performance monitoring
-prisma.$use(async (params, next) => {
+prisma.$use(async (params: any, next: any) => {
   const start = Date.now();
   
   try {

@@ -15,7 +15,7 @@ datasource db {
 model User {
   id             String        @id @default(auto()) @map("_id") @db.ObjectId
   name           String
-  username       String        @unique // <--- FIELD USERNAME DITAMBAHKAN DI SINI
+  username       String?       @unique // Optional dengan unique constraint
   email          String        @unique
   password       String?       // Optional for social logins
   image          String?
