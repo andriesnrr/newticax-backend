@@ -1,3 +1,4 @@
+// src/middlewares/auth.middleware.ts
 import { Response, NextFunction, RequestHandler } from 'express';
 import { prisma } from '../config/db';
 import { AppError } from '../utils/errorHandler';
@@ -18,12 +19,23 @@ export const protect: RequestHandler = async (req, res, next) => {
     }
 
     if (!token) {
+      // Add specific header to prevent frontend loops
+      res.setHeader('X-Auth-Required', 'true');
       return next(new AppError('Authentication required. Please log in to access this resource.', 401));
     }
 
     // Verify token
     const decoded = verifyToken(token);
     if (!decoded) {
+      // Clear invalid token cookie to prevent loops
+      res.clearCookie('token', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'none',
+        path: '/',
+      });
+      
+      res.setHeader('X-Auth-Invalid', 'true');
       return next(new AppError('Invalid or expired token. Please log in again.', 401));
     }
 
@@ -36,6 +48,15 @@ export const protect: RequestHandler = async (req, res, next) => {
     });
 
     if (!user) {
+      // Clear token for non-existent user to prevent loops
+      res.clearCookie('token', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'none',
+        path: '/',
+      });
+      
+      res.setHeader('X-User-Not-Found', 'true');
       return next(new AppError('User no longer exists. Please log in again.', 401));
     }
 
@@ -48,6 +69,16 @@ export const protect: RequestHandler = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);
+    
+    // Clear potentially corrupted cookie
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'none',
+      path: '/',
+    });
+    
+    res.setHeader('X-Auth-Error', 'true');
     next(new AppError('Authentication failed. Please log in again.', 401));
   }
 };
@@ -167,4 +198,10 @@ export const optionalAuth: RequestHandler = async (req, res, next) => {
     console.warn('Optional auth failed:', error);
     next();
   }
+};
+
+// Rate limiting middleware for auth endpoints
+export const authRateLimit = (req: any, res: any, next: any) => {
+  // Add rate limiting logic here if needed
+  next();
 };

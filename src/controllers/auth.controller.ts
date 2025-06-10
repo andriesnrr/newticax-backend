@@ -1,5 +1,6 @@
+// src/controllers/auth.controller.ts - Update getMeHandler
 import { Request, Response, NextFunction } from 'express';
-import bcrypt from 'bcryptjs'; // Changed from 'bcrypt' to 'bcryptjs'
+import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { prisma } from '../config/db';
 import { generateToken, clearToken, blacklistToken } from '../utils/jwt';
@@ -23,6 +24,122 @@ export const passwordResetLimiter = rateLimit({
   },
 });
 
+// Enhanced getMeHandler to prevent loops
+export const getMeHandler = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user || !req.user.id) {
+      // Clear any invalid cookies to prevent frontend loops
+      res.clearCookie('token', {
+        httpOnly: true,
+        secure: env.NODE_ENV === 'production',
+        sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none',
+        path: '/',
+      });
+      
+      // Add specific headers for frontend to handle
+      res.setHeader('X-Auth-Status', 'required');
+      res.setHeader('X-Clear-Token', 'true');
+      
+      logger.warn('getMeHandler: User not authenticated', {
+        hasUser: !!req.user,
+        userId: req.user?.id,
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+      });
+      
+      res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+        code: 'AUTH_REQUIRED',
+        action: 'redirect_to_login',
+      });
+      return;
+    }
+
+    const userWithDetails = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: {
+        preference: true,
+        _count: {
+          select: {
+            articles: true,
+            bookmarks: true,
+            likes: true,
+            comments: true,
+          },
+        },
+      },
+    });
+
+    if (!userWithDetails) {
+      // User exists in token but not in database - clear token
+      res.clearCookie('token', {
+        httpOnly: true,
+        secure: env.NODE_ENV === 'production',
+        sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none',
+        path: '/',
+      });
+      
+      res.setHeader('X-Auth-Status', 'invalid');
+      res.setHeader('X-Clear-Token', 'true');
+      
+      logger.warn('getMeHandler: Authenticated user not found in database', {
+        userId: req.user.id,
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+      });
+      
+      res.status(401).json({
+        success: false,
+        message: 'User account no longer exists',
+        code: 'USER_NOT_FOUND',
+        action: 'redirect_to_login',
+      });
+      return;
+    }
+
+    const { password, ...userData } = userWithDetails;
+    
+    // Add success headers
+    res.setHeader('X-Auth-Status', 'authenticated');
+    
+    res.status(200).json({
+      success: true,
+      data: userData,
+    });
+  } catch (error) {
+    logger.error('getMeHandler error', { 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      userId: req.user?.id,
+      ip: req.ip,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    
+    // Clear token on error to prevent loops
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: env.NODE_ENV === 'production',
+      sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none',
+      path: '/',
+    });
+    
+    res.setHeader('X-Auth-Status', 'error');
+    res.setHeader('X-Clear-Token', 'true');
+    
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      code: 'INTERNAL_ERROR',
+      action: 'retry_or_login',
+    });
+  }
+};
+
+// Enhanced registerHandler
 export const registerHandler = async (
   req: Request,
   res: Response,
@@ -157,6 +274,7 @@ export const registerHandler = async (
   }
 };
 
+// Enhanced loginHandler
 export const loginHandler = async (
   req: Request,
   res: Response,
@@ -252,53 +370,6 @@ export const loginHandler = async (
     });
   } catch (error) {
     logger.error('Login error', { error, email: req.body?.email });
-    next(error);
-  }
-};
-
-export const getMeHandler = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    if (!req.user || !req.user.id) {
-      next(new AppError('User not authenticated or user ID missing', 401));
-      return;
-    }
-
-    const userWithDetails = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      include: {
-        preference: true,
-        _count: {
-          select: {
-            articles: true,
-            bookmarks: true,
-            likes: true,
-            comments: true,
-          },
-        },
-      },
-    });
-
-    if (!userWithDetails) {
-      logger.warn('Authenticated user not found in database', {
-        userId: req.user.id,
-        ip: req.ip,
-      });
-      next(new AppError('Authenticated user not found in database', 404));
-      return;
-    }
-
-    const { password, ...userData } = userWithDetails;
-    
-    res.status(200).json({
-      success: true,
-      data: userData,
-    });
-  } catch (error) {
-    logger.error('Get user profile error', { error, userId: req.user?.id });
     next(error);
   }
 };
