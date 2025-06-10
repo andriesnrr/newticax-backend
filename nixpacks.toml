@@ -1,14 +1,16 @@
 [phases.setup]
-nixPkgs = ['nodejs_18', 'pnpm']
+nixPkgs = ['nodejs_18', 'python3', 'gcc']
 
 [phases.install]
 cmds = [
-  'pnpm install --no-frozen-lockfile',
-  'pnpm run db:generate'
+  'npm install',
+  'npx prisma generate'
 ]
 
 [phases.build]
-cmds = ['pnpm run build']
+cmds = [
+  'npm run build'
+]
 
 [start]
-cmd = 'pnpm start'
+cmd = 'npm start'
