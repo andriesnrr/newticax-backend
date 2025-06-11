@@ -1,4 +1,3 @@
-// src/controllers/auth.controller.ts - Update getMeHandler
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
@@ -106,6 +105,12 @@ export const getMeHandler = async (
     
     // Add success headers
     res.setHeader('X-Auth-Status', 'authenticated');
+    
+    logger.info('getMeHandler: User authenticated successfully', {
+      userId: userData.id,
+      email: userData.email,
+      ip: req.ip,
+    });
     
     res.status(200).json({
       success: true,
@@ -242,14 +247,16 @@ export const registerHandler = async (
     // Generate token
     const token = generateToken(result.id, result.role);
 
-    // Set secure cookie
-    res.cookie('token', token, {
+    // Set secure cookie with enhanced options
+    const cookieOptions = {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
       maxAge: env.COOKIE_EXPIRES,
-      sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none',
+      sameSite: env.NODE_ENV === 'production' ? 'lax' as const : 'none' as const,
       path: '/',
-    });
+    };
+
+    res.cookie('token', token, cookieOptions);
 
     // Remove password from response
     const { password: _, ...userData } = result;
@@ -260,13 +267,14 @@ export const registerHandler = async (
       email: result.email,
       username: result.username,
       ip: req.ip,
+      cookieSet: true,
     });
 
     res.status(201).json({
       success: true,
       message: 'Registration successful',
       data: userData,
-      token,
+      token, // Include for debugging
     });
   } catch (error) {
     logger.error('Registration error', { error, email: req.body?.email });
@@ -274,7 +282,7 @@ export const registerHandler = async (
   }
 };
 
-// Enhanced loginHandler
+// Enhanced loginHandler - CRITICAL FIXES
 export const loginHandler = async (
   req: Request,
   res: Response,
@@ -290,6 +298,12 @@ export const loginHandler = async (
 
     // Sanitize email
     const sanitizedEmail = email.toLowerCase().trim();
+
+    logger.info('Login attempt started', {
+      email: sanitizedEmail,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+    });
 
     // Find user with password field
     const user = await prisma.user.findUnique({
@@ -336,14 +350,19 @@ export const loginHandler = async (
     const tokenExpiry = rememberMe ? 30 * 24 * 60 * 60 * 1000 : env.COOKIE_EXPIRES; // 30 days vs default
     const token = generateToken(user.id, user.role);
 
-    // Set secure cookie
-    res.cookie('token', token, {
+    // CRITICAL: Enhanced cookie options for cross-origin
+    const cookieOptions = {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
       maxAge: tokenExpiry,
-      sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none',
+      sameSite: env.NODE_ENV === 'production' ? 'lax' as const : 'none' as const,
       path: '/',
-    });
+      // Don't set domain in development, let browser handle it
+      ...(env.NODE_ENV === 'production' && { domain: undefined }),
+    };
+
+    // Set cookie with debug logging
+    res.cookie('token', token, cookieOptions);
 
     // Update last login
     await prisma.user.update({
@@ -354,19 +373,36 @@ export const loginHandler = async (
     // Remove password from response
     const { password: _, ...userData } = user;
     
-    // Log successful login
+    // Enhanced logging
     logger.info('User logged in successfully', {
       userId: user.id,
       email: user.email,
       ip: req.ip,
       rememberMe,
+      cookieSet: true,
+      tokenExpiry: tokenExpiry / (24 * 60 * 60 * 1000) + ' days',
+    });
+
+    // Debug logging for cookie
+    console.log('🍪 LOGIN COOKIE DEBUG:', {
+      tokenPreview: token.substring(0, 20) + '...',
+      cookieOptions,
+      nodeEnv: env.NODE_ENV,
+      userEmail: user.email,
+      userId: user.id,
     });
     
+    // CRITICAL: Return comprehensive response
     res.status(200).json({
       success: true,
       message: 'Login successful',
       data: userData,
-      token,
+      token, // Include token for debugging
+      debug: {
+        cookieSet: true,
+        nodeEnv: env.NODE_ENV,
+        tokenExpiry: tokenExpiry,
+      }
     });
   } catch (error) {
     logger.error('Login error', { error, email: req.body?.email });

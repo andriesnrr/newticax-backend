@@ -1,3 +1,4 @@
+// ===== src/app.ts - COMPLETELY FIXED VERSION =====
 import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
@@ -29,19 +30,19 @@ validateEnv();
 // Create Express app
 const app = express();
 
-// Trust proxy for Railway
+// Trust proxy for Railway/Vercel
 app.set('trust proxy', 1);
 
-// Security headers - simplified
+// Security headers - simplified for deployment
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable for Railway
+  contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
 }));
 
-// Rate limiting configurations - FIXED and SIMPLIFIED
+// Rate limiting configurations
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Much higher limit
+  max: 1000,
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again later.',
@@ -49,15 +50,13 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => {
-    // Skip rate limiting for health checks and root
     return req.path === '/health' || req.path === '/';
   }
 });
 
-// Auth-specific rate limiter - SIMPLIFIED
 const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30, // More lenient to prevent loops
+  max: 30,
   message: {
     success: false,
     message: 'Too many authentication requests, please wait a moment.',
@@ -66,7 +65,7 @@ const authRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true, // FIXED: boolean not function
+  skipSuccessfulRequests: true,
   handler: (req: Request, res: Response) => {
     const clientIP = req.ip || 'unknown';
     
@@ -91,18 +90,48 @@ const authRateLimiter = rateLimit({
 // Apply general rate limiting
 app.use(generalLimiter);
 
-// CORS configuration - simplified and permissive
+// CORS configuration - FIXED AND SIMPLIFIED
 app.use(cors({
-  origin: [
-    'https://newticax.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:3001'
-  ],
-  credentials: true,
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'https://newticax.vercel.app',
+      'http://localhost:3000',
+      'http://localhost:3001',
+    ];
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      logger.warn('CORS blocked origin', { origin });
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true, // CRITICAL: Must be true for cookies
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie'],
-  exposedHeaders: ['X-Total-Count', 'X-Cache-Status', 'X-Auth-Status', 'X-Debug-Hint', 'X-Clear-Token'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With', 
+    'Accept', 
+    'Origin', 
+    'Cookie',
+    'Set-Cookie'
+  ],
+  exposedHeaders: [
+    'X-Total-Count', 
+    'X-Cache-Status', 
+    'X-Auth-Status', 
+    'X-Debug-Hint', 
+    'X-Clear-Token',
+    'Set-Cookie'
+  ],
 }));
+
+// Handle preflight requests
+app.options('*', cors());
 
 // Body parsing middleware
 app.use(express.json({ 
@@ -121,7 +150,7 @@ app.use(cookieParser(env.COOKIE_SECRET));
 // NO PASSPORT - JWT ONLY AUTHENTICATION
 console.log('ℹ️ Using JWT-only authentication (Passport disabled for Railway)');
 
-// SIMPLIFIED Loop prevention middleware - inline implementation
+// FIXED: Loop prevention middleware with proper typing
 const loopPreventionMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const clientIP = req.ip || 'unknown';
   const now = Date.now();
@@ -216,7 +245,7 @@ const loopPreventionMiddleware = (req: Request, res: Response, next: NextFunctio
   next();
 };
 
-// SIMPLIFIED Auth debug headers middleware
+// FIXED: Auth debug headers middleware with proper typing
 const authDebugHeaders = (req: Request, res: Response, next: NextFunction) => {
   // Only for auth endpoints
   if (req.path.startsWith('/api/auth/')) {
@@ -253,15 +282,22 @@ app.use(loopPreventionMiddleware);
 // Apply auth rate limiting to auth routes only
 app.use('/api/auth', authRateLimiter);
 
-// Request logging middleware - simplified
+// FIXED: Request logging middleware with proper typing
 app.use((req: Request, res: Response, next: NextFunction) => {
   const startTime = Date.now();
   
-  // Simple logging with special handling for auth endpoints
+  // Enhanced logging for auth endpoints
   const isAuthEndpoint = req.url.startsWith('/api/auth/');
   
   if (isAuthEndpoint) {
     console.log(`🔐 AUTH ${req.method} ${req.url} - ${req.ip} [${new Date().toISOString()}]`);
+    
+    // Log cookies for debugging
+    if (req.cookies && req.cookies.token) {
+      console.log(`🍪 Cookie present: ${req.cookies.token.substring(0, 20)}...`);
+    } else {
+      console.log(`🍪 No cookie found`);
+    }
   } else {
     console.log(`${req.method} ${req.url} - ${req.ip}`);
   }
@@ -278,6 +314,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
         console.warn(`⚠️ RATE LIMITED: ${req.method} ${req.url} - ${req.ip}`);
       } else if (res.statusCode === 401 && req.url === '/api/auth/me') {
         console.warn(`⚠️ AUTH FAILED: ${req.url} - ${req.ip}`);
+      } else if (res.statusCode === 200 && req.url.includes('/login')) {
+        console.log(`✅ LOGIN SUCCESS: ${req.url} - ${req.ip}`);
       }
     } else if (duration > 2000) {
       console.log(`SLOW: ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
@@ -511,7 +549,6 @@ const startServer = async () => {
       console.log(`✅ Server running on port ${PORT} in ${env.NODE_ENV} mode`);
       console.log(`🌐 Server URL: http://0.0.0.0:${PORT}`);
       console.log(`📋 Health check: http://0.0.0.0:${PORT}/health`);
-      console.log(`📚 API docs: http://0.0.0.0:${PORT}/api/docs`);
       console.log(`🔐 Auth mode: JWT-only (no Passport)`);
       console.log(`🛡️ Loop prevention: Active`);
       console.log(`🎯 Ready to handle requests!`);
@@ -520,33 +557,10 @@ const startServer = async () => {
     // Set server timeout
     server.timeout = 30000; // 30 seconds
 
-    // Handle server errors
-    server.on('error', (error: any) => {
-      console.error('❌ Server error:', error);
-      if (error.code === 'EADDRINUSE') {
-        console.error(`❌ Port ${PORT} is already in use`);
-      } else if (error.code === 'EACCES') {
-        console.error(`❌ Permission denied to bind to port ${PORT}`);
-      }
-      process.exit(1);
-    });
-
     return server;
 
   } catch (error) {
     console.error('❌ Failed to start server:', error);
-    
-    // Specific error handling
-    if (error instanceof Error) {
-      if (error.message.includes('DATABASE_URL')) {
-        console.error('💡 Please check your DATABASE_URL environment variable');
-      } else if (error.message.includes('ECONNREFUSED')) {
-        console.error('💡 Database connection refused. Please check if your database is running');
-      } else if (error.message.includes('authentication failed')) {
-        console.error('💡 Database authentication failed. Please check your credentials');
-      }
-    }
-    
     process.exit(1);
   }
 };
