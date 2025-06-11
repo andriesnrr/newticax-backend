@@ -30,6 +30,15 @@ export const getMeHandler = async (
   next: NextFunction
 ): Promise<void> => {
   try {
+    // Debug logging
+    console.log('🔍 getMeHandler called:', {
+      hasUser: !!req.user,
+      userId: req.user?.id,
+      userAgent: req.get('User-Agent')?.substring(0, 50),
+      ip: req.ip,
+      timestamp: new Date().toISOString(),
+    });
+
     if (!req.user || !req.user.id) {
       // Clear any invalid cookies to prevent frontend loops
       res.clearCookie('token', {
@@ -41,6 +50,7 @@ export const getMeHandler = async (
       
       // Add specific headers for frontend to handle
       res.setHeader('X-Auth-Status', 'required');
+      res.setHeader('X-Auth-Required', 'true');
       res.setHeader('X-Clear-Token', 'true');
       
       logger.warn('getMeHandler: User not authenticated', {
@@ -55,10 +65,16 @@ export const getMeHandler = async (
         message: 'Authentication required',
         code: 'AUTH_REQUIRED',
         action: 'redirect_to_login',
+        debug: {
+          hasUser: !!req.user,
+          hasUserId: !!(req.user?.id),
+          timestamp: new Date().toISOString(),
+        }
       });
       return;
     }
 
+    // Get fresh user data from database
     const userWithDetails = await prisma.user.findUnique({
       where: { id: req.user.id },
       include: {
@@ -84,6 +100,7 @@ export const getMeHandler = async (
       });
       
       res.setHeader('X-Auth-Status', 'invalid');
+      res.setHeader('X-User-Not-Found', 'true');
       res.setHeader('X-Clear-Token', 'true');
       
       logger.warn('getMeHandler: Authenticated user not found in database', {
@@ -97,14 +114,26 @@ export const getMeHandler = async (
         message: 'User account no longer exists',
         code: 'USER_NOT_FOUND',
         action: 'redirect_to_login',
+        debug: {
+          tokenUserId: req.user.id,
+          timestamp: new Date().toISOString(),
+        }
       });
       return;
     }
 
+    // Remove password from response
     const { password, ...userData } = userWithDetails;
     
     // Add success headers
     res.setHeader('X-Auth-Status', 'authenticated');
+    res.setHeader('X-User-Valid', 'true');
+    
+    console.log('✅ getMeHandler: User authenticated successfully:', {
+      userId: userData.id,
+      email: userData.email,
+      role: userData.role,
+    });
     
     logger.info('getMeHandler: User authenticated successfully', {
       userId: userData.id,
@@ -115,8 +144,14 @@ export const getMeHandler = async (
     res.status(200).json({
       success: true,
       data: userData,
+      debug: {
+        authenticated: true,
+        timestamp: new Date().toISOString(),
+      }
     });
   } catch (error) {
+    console.error('❌ getMeHandler error:', error);
+    
     logger.error('getMeHandler error', { 
       error: error instanceof Error ? error.message : 'Unknown error',
       userId: req.user?.id,
@@ -133,13 +168,18 @@ export const getMeHandler = async (
     });
     
     res.setHeader('X-Auth-Status', 'error');
+    res.setHeader('X-Auth-Error', 'true');
     res.setHeader('X-Clear-Token', 'true');
     
     res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      code: 'INTERNAL_ERROR',
+      message: 'Internal server error during authentication',
+      code: 'AUTH_INTERNAL_ERROR',
       action: 'retry_or_login',
+      debug: {
+        error: env.NODE_ENV === 'development' ? (error as Error)?.message : 'Hidden in production',
+        timestamp: new Date().toISOString(),
+      }
     });
   }
 };
@@ -153,12 +193,14 @@ export const registerHandler = async (
   try {
     const { name, email, password, username, language = Language.ENGLISH } = req.body as RegisterInput;
 
+    console.log('📝 Registration attempt:', { email, username, name });
+
     // Enhanced validation
     if (!name || !email || !password || !username) {
       next(new AppError('Name, email, username, and password are required', 400));
       return;
     }
-
+    
     // Sanitize inputs
     const sanitizedData = sanitizeInput({
       name: name.trim(),
@@ -261,6 +303,12 @@ export const registerHandler = async (
     // Remove password from response
     const { password: _, ...userData } = result;
     
+    console.log('✅ Registration successful:', {
+      userId: result.id,
+      email: result.email,
+      username: result.username,
+    });
+    
     // Log successful registration
     logger.info('User registered successfully', {
       userId: result.id,
@@ -274,9 +322,14 @@ export const registerHandler = async (
       success: true,
       message: 'Registration successful',
       data: userData,
-      token, // Include for debugging
+      token: env.NODE_ENV === 'development' ? token : undefined, // Include for debugging in dev
+      debug: {
+        cookieSet: true,
+        timestamp: new Date().toISOString(),
+      }
     });
   } catch (error) {
+    console.error('❌ Registration error:', error);
     logger.error('Registration error', { error, email: req.body?.email });
     next(error);
   }
@@ -290,6 +343,8 @@ export const loginHandler = async (
 ): Promise<void> => {
   try {
     const { email, password, rememberMe = false } = req.body as LoginInput & { rememberMe?: boolean };
+    
+    console.log('🔐 Login attempt:', { email, rememberMe, ip: req.ip });
     
     if (!email || !password) {
       next(new AppError('Email and password are required', 400));
@@ -357,8 +412,6 @@ export const loginHandler = async (
       maxAge: tokenExpiry,
       sameSite: env.NODE_ENV === 'production' ? 'lax' as const : 'none' as const,
       path: '/',
-      // Don't set domain in development, let browser handle it
-      ...(env.NODE_ENV === 'production' && { domain: undefined }),
     };
 
     // Set cookie with debug logging
@@ -372,6 +425,13 @@ export const loginHandler = async (
     
     // Remove password from response
     const { password: _, ...userData } = user;
+    
+    console.log('✅ Login successful:', {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      rememberMe,
+    });
     
     // Enhanced logging
     logger.info('User logged in successfully', {
@@ -397,14 +457,16 @@ export const loginHandler = async (
       success: true,
       message: 'Login successful',
       data: userData,
-      token, // Include token for debugging
+      token: env.NODE_ENV === 'development' ? token : undefined, // Include for debugging in dev
       debug: {
         cookieSet: true,
         nodeEnv: env.NODE_ENV,
         tokenExpiry: tokenExpiry,
+        timestamp: new Date().toISOString(),
       }
     });
   } catch (error) {
+    console.error('❌ Login error:', error);
     logger.error('Login error', { error, email: req.body?.email });
     next(error);
   }
@@ -418,6 +480,12 @@ export const logoutHandler = async (
   try {
     // Extract token from cookie or header
     const token = req.cookies.token || req.headers.authorization?.replace('Bearer ', '');
+    
+    console.log('🚪 Logout attempt:', {
+      userId: req.user?.id,
+      hasToken: !!token,
+      ip: req.ip,
+    });
     
     if (token) {
       // Add token to blacklist
@@ -433,11 +501,22 @@ export const logoutHandler = async (
     // Clear token cookie
     clearToken(res);
     
+    // Add headers to confirm logout
+    res.setHeader('X-Auth-Status', 'logged_out');
+    res.setHeader('X-Clear-Token', 'true');
+    
+    console.log('✅ Logout successful');
+    
     res.status(200).json({
       success: true,
       message: 'Logout successful',
+      debug: {
+        tokenCleared: true,
+        timestamp: new Date().toISOString(),
+      }
     });
   } catch (error) {
+    console.error('❌ Logout error:', error);
     logger.error('Logout error', { error, userId: req.user?.id });
     next(error);
   }
