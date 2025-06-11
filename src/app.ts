@@ -90,7 +90,7 @@ const authRateLimiter = rateLimit({
 // Apply general rate limiting
 app.use(generalLimiter);
 
-// CORS configuration - FIXED AND SIMPLIFIED
+// CORS configuration - ENHANCED FOR CROSS-ORIGIN COOKIES
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, curl, etc.)
@@ -113,7 +113,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: [
     'Content-Type', 
-    'Authorization', 
+    'Authorization', // CRITICAL for Bearer tokens
     'X-Requested-With', 
     'Accept', 
     'Origin', 
@@ -129,6 +129,35 @@ app.use(cors({
     'Set-Cookie'
   ],
 }));
+
+// Enhanced request logging to debug CORS and cookies
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const startTime = Date.now();
+  const isAuthEndpoint = req.url.startsWith('/api/auth/');
+  
+  if (isAuthEndpoint) {
+    console.log(`🔐 AUTH ${req.method} ${req.url} - ${req.ip} [${new Date().toISOString()}]`);
+    console.log(`🌐 Origin: ${req.get('Origin') || 'none'}`);
+    console.log(`🔑 Auth Header: ${req.get('Authorization') ? 'present' : 'none'}`);
+    console.log(`🍪 Cookie: ${req.cookies?.token ? 'present' : 'none'}`);
+  }
+
+  res.on('finish', () => {
+    const duration = Date.now() - startTime;
+    
+    if (isAuthEndpoint) {
+      console.log(`🔐 AUTH ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
+      
+      if (res.statusCode === 200 && req.url.includes('/login')) {
+        console.log(`✅ LOGIN SUCCESS - Token in response: ${res.headersSent ? 'sent' : 'not sent'}`);
+      } else if (res.statusCode === 401) {
+        console.warn(`⚠️ AUTH FAILED: ${req.url} - Check token presence and validity`);
+      }
+    }
+  });
+  
+  next();
+});
 
 // Handle preflight requests
 app.options('*', cors());
