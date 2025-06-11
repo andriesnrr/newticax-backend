@@ -15,6 +15,28 @@ import { logger } from './utils/logger';
 
 console.log('🚀 Starting NewticaX API...');
 
+// Declare global types for loop prevention
+declare global {
+  namespace NodeJS {
+    interface Global {
+      clientPatterns: Map<string, {
+        lastRequest: number;
+        requestCount: number;
+        consecutiveFailures: number;
+        blocked: boolean;
+        blockUntil: number;
+      }>;
+    }
+  }
+  var clientPatterns: Map<string, {
+    lastRequest: number;
+    requestCount: number;
+    consecutiveFailures: number;
+    blocked: boolean;
+    blockUntil: number;
+  }>;
+}
+
 // Handle uncaught exceptions early
 process.on('uncaughtException', (err) => {
   console.error('🔥 Uncaught Exception:', err);
