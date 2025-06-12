@@ -1,14 +1,14 @@
-import { Request, Response, NextFunction } from 'express';
-import slugify from 'slugify';
-import { prisma } from '../config/db';
-import { AppError } from '../utils/errorHandler';
-import { getPaginationParams } from '../utils/pagination';
-import { AuthRequest } from '../types';
-import { fetchArticlesFromNewsAPI } from '../services/news-api.service';
-import { Language, Role } from '@prisma/client';
-import { logger } from '../utils/logger';
-import { getCachedData, setCachedData } from '../utils/cache';
-import { sanitizeInput } from '../utils/sanitize';
+import { Request, Response, NextFunction } from "express";
+import slugify from "slugify";
+import { prisma } from "../config/db";
+import { AppError } from "../utils/errorHandler";
+import { getPaginationParams } from "../utils/pagination";
+import { AuthRequest } from "../types";
+import { fetchArticlesFromNewsAPI } from "../services/news-api.service";
+import { Language, Role } from "@prisma/client";
+import { logger } from "../utils/logger";
+import { getCachedData, setCachedData } from "../utils/cache";
+import { sanitizeInput } from "../utils/sanitize";
 
 // Cache TTL constants
 const CACHE_TTL = {
@@ -26,13 +26,13 @@ export const getArticlesHandler = async (
 ) => {
   try {
     const { page, limit } = getPaginationParams(req);
-    const language = req.query.language as Language || Language.ENGLISH;
+    const language = (req.query.language as Language) || Language.ENGLISH;
     const categoryId = req.query.categoryId as string;
-    const featured = req.query.featured === 'true';
-    
+    const featured = req.query.featured === "true";
+
     // Create cache key
-    const cacheKey = `articles:${page}:${limit}:${language}:${categoryId || 'all'}:${featured}`;
-    
+    const cacheKey = `articles:${page}:${limit}:${language}:${categoryId || "all"}:${featured}`;
+
     // Try to get from cache first
     const cachedData = await getCachedData(cacheKey);
     if (cachedData) {
@@ -49,15 +49,12 @@ export const getArticlesHandler = async (
     }
 
     if (featured) {
-      where.OR = [
-        { isTrending: true },
-        { isBreaking: true },
-      ];
+      where.OR = [{ isTrending: true }, { isBreaking: true }];
     }
 
     // Count total articles
     const total = await prisma.article.count({ where });
-    
+
     // Get paginated articles with optimized select
     const articles = await prisma.article.findMany({
       where,
@@ -103,10 +100,7 @@ export const getArticlesHandler = async (
           },
         },
       },
-      orderBy: [
-        { isBreaking: 'desc' },
-        { publishedAt: 'desc' },
-      ],
+      orderBy: [{ isBreaking: "desc" }, { publishedAt: "desc" }],
       skip: (page - 1) * limit,
       take: limit,
     });
@@ -127,7 +121,7 @@ export const getArticlesHandler = async (
 
     res.status(200).json(response);
   } catch (error) {
-    logger.error('Get articles error', { error, query: req.query });
+    logger.error("Get articles error", { error, query: req.query });
     next(error);
   }
 };
@@ -140,9 +134,9 @@ export const getArticleBySlugHandler = async (
 ) => {
   try {
     const { slug } = req.params;
-    
-    if (!slug || typeof slug !== 'string') {
-      throw new AppError('Invalid article slug', 400);
+
+    if (!slug || typeof slug !== "string") {
+      throw new AppError("Invalid article slug", 400);
     }
 
     // Sanitize slug
@@ -151,7 +145,7 @@ export const getArticleBySlugHandler = async (
     // Cache key for article
     const cacheKey = `article:${sanitizedSlug}`;
     const cachedArticle = await getCachedData(cacheKey);
-    
+
     let article;
     if (cachedArticle) {
       article = cachedArticle;
@@ -197,7 +191,21 @@ export const getArticleBySlugHandler = async (
       });
 
       if (!article) {
-        throw new AppError('Article not found', 404);
+        throw new AppError("Article not found", 404);
+      }
+
+      // Jika artikel eksternal dan kontennya terpotong,
+      // berikan informasi tambahan untuk frontend
+      if (article.isExternal && article.sourceUrl) {
+        // Check if content seems truncated
+        const isContentShort = article.content && article.content.length < 500;
+        const hasContentIndicator =
+          article.content?.includes("[+") || article.summary?.includes("[+");
+
+        if (isContentShort || hasContentIndicator) {
+          article.hasFullContentAtSource = true;
+          article.isContentTruncated = true;
+        }
       }
 
       // Cache article for 10 minutes
@@ -207,13 +215,13 @@ export const getArticleBySlugHandler = async (
     // Get related articles with caching
     const relatedCacheKey = `related:${article.id}`;
     let relatedArticles = await getCachedData(relatedCacheKey);
-    
+
     if (!relatedArticles) {
       relatedArticles = await prisma.article.findMany({
         where: {
           OR: [
             { categoryId: article.categoryId },
-            { 
+            {
               tags: {
                 some: {
                   id: {
@@ -237,6 +245,9 @@ export const getArticleBySlugHandler = async (
           image: true,
           publishedAt: true,
           viewCount: true,
+          isExternal: true,
+          sourceUrl: true,
+          source: true,
           category: {
             select: {
               name: true,
@@ -251,7 +262,7 @@ export const getArticleBySlugHandler = async (
           },
         },
         orderBy: {
-          publishedAt: 'desc',
+          publishedAt: "desc",
         },
         take: 4,
       });
@@ -267,9 +278,11 @@ export const getArticleBySlugHandler = async (
     if (req.cookies.token) {
       try {
         const token = req.cookies.token;
-        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+        const payload = JSON.parse(
+          Buffer.from(token.split(".")[1], "base64").toString()
+        );
         userId = payload.userId;
-        
+
         if (userId) {
           const [bookmark, like] = await Promise.all([
             prisma.bookmark.findUnique({
@@ -295,38 +308,52 @@ export const getArticleBySlugHandler = async (
         }
       } catch (e) {
         // Ignore token parsing errors
-        logger.warn('Token parsing error in article view', { error: e, slug: sanitizedSlug });
+        logger.warn("Token parsing error in article view", {
+          error: e,
+          slug: sanitizedSlug,
+        });
       }
     }
 
     // Update view count asynchronously
-    prisma.article.update({
-      where: { id: article.id },
-      data: { viewCount: { increment: 1 } },
-    }).catch(error => {
-      logger.error('Error updating view count', { error, articleId: article.id });
-    });
+    prisma.article
+      .update({
+        where: { id: article.id },
+        data: { viewCount: { increment: 1 } },
+      })
+      .catch((error) => {
+        logger.error("Error updating view count", {
+          error,
+          articleId: article.id,
+        });
+      });
 
     // Add to reading history if user is authenticated
     if (userId) {
-      prisma.readHistory.upsert({
-        where: {
-          articleId_userId: {
+      prisma.readHistory
+        .upsert({
+          where: {
+            articleId_userId: {
+              articleId: article.id,
+              userId,
+            },
+          },
+          update: {
+            readAt: new Date(),
+          },
+          create: {
             articleId: article.id,
             userId,
+            readAt: new Date(),
           },
-        },
-        update: {
-          readAt: new Date(),
-        },
-        create: {
-          articleId: article.id,
-          userId,
-          readAt: new Date(),
-        },
-      }).catch(error => {
-        logger.error('Error updating reading history', { error, articleId: article.id, userId });
-      });
+        })
+        .catch((error) => {
+          logger.error("Error updating reading history", {
+            error,
+            articleId: article.id,
+            userId,
+          });
+        });
     }
 
     res.status(200).json({
@@ -336,10 +363,16 @@ export const getArticleBySlugHandler = async (
         isBookmarked,
         isLiked,
         relatedArticles,
+        // Tambahkan informasi untuk frontend
+        contentNote:
+          article.isExternal &&
+          (article.hasFullContentAtSource || article.isContentTruncated)
+            ? 'This is a preview. Click "Read Full Article" for complete content.'
+            : null,
       },
     });
   } catch (error) {
-    logger.error('Get article by slug error', { error, slug: req.params.slug });
+    logger.error("Get article by slug error", { error, slug: req.params.slug });
     next(error);
   }
 };
@@ -352,7 +385,7 @@ export const createArticleHandler = async (
 ) => {
   try {
     if (!req.user) {
-      throw new AppError('User not found', 404);
+      throw new AppError("User not found", 404);
     }
 
     const {
@@ -370,19 +403,19 @@ export const createArticleHandler = async (
 
     // Enhanced validation
     if (!title || !content || !summary) {
-      throw new AppError('Title, content, and summary are required', 400);
+      throw new AppError("Title, content, and summary are required", 400);
     }
 
     if (title.length < 10 || title.length > 200) {
-      throw new AppError('Title must be between 10 and 200 characters', 400);
+      throw new AppError("Title must be between 10 and 200 characters", 400);
     }
 
     if (content.length < 100) {
-      throw new AppError('Content must be at least 100 characters', 400);
+      throw new AppError("Content must be at least 100 characters", 400);
     }
 
     if (summary.length < 50 || summary.length > 500) {
-      throw new AppError('Summary must be between 50 and 500 characters', 400);
+      throw new AppError("Summary must be between 50 and 500 characters", 400);
     }
 
     // Sanitize inputs
@@ -398,7 +431,7 @@ export const createArticleHandler = async (
         where: { id: categoryId },
       });
       if (!category) {
-        throw new AppError('Invalid category selected', 400);
+        throw new AppError("Invalid category selected", 400);
       }
     }
 
@@ -408,17 +441,17 @@ export const createArticleHandler = async (
         where: { id: { in: tagIds } },
       });
       if (validTags.length !== tagIds.length) {
-        throw new AppError('One or more invalid tags selected', 400);
+        throw new AppError("One or more invalid tags selected", 400);
       }
     }
 
     // Generate unique slug
     let slug = slugify(sanitizedData.title, { lower: true, strict: true });
-    
+
     const existingArticle = await prisma.article.findUnique({
       where: { slug },
     });
-    
+
     if (existingArticle) {
       slug = `${slug}-${Date.now()}`;
     }
@@ -456,17 +489,7 @@ export const createArticleHandler = async (
       },
     });
 
-    // Clear related caches
-    const cacheKeys = [
-      `articles:*`,
-      `trending:${language}`,
-      `breaking:${language}`,
-    ];
-    
-    // Note: You'll need to implement cache clearing logic
-    // This is a placeholder for cache invalidation
-
-    logger.info('Article created', {
+    logger.info("Article created", {
       articleId: article.id,
       authorId: req.user.id,
       title: article.title,
@@ -475,11 +498,11 @@ export const createArticleHandler = async (
 
     res.status(201).json({
       success: true,
-      message: 'Article created successfully',
+      message: "Article created successfully",
       data: article,
     });
   } catch (error) {
-    logger.error('Create article error', { error, userId: req.user?.id });
+    logger.error("Create article error", { error, userId: req.user?.id });
     next(error);
   }
 };
@@ -491,12 +514,12 @@ export const getBreakingNewsHandler = async (
   next: NextFunction
 ) => {
   try {
-    const language = req.query.language as Language || Language.ENGLISH;
+    const language = (req.query.language as Language) || Language.ENGLISH;
     const limit = parseInt(req.query.limit as string) || 5;
-    
+
     const cacheKey = `breaking:${language}:${limit}`;
     const cachedData = await getCachedData(cacheKey);
-    
+
     if (cachedData) {
       return res.status(200).json(cachedData);
     }
@@ -517,6 +540,7 @@ export const getBreakingNewsHandler = async (
         publishedAt: true,
         source: true,
         isExternal: true,
+        sourceUrl: true,
         author: {
           select: {
             id: true,
@@ -539,7 +563,7 @@ export const getBreakingNewsHandler = async (
         },
       },
       orderBy: {
-        publishedAt: 'desc',
+        publishedAt: "desc",
       },
       take: limit,
     });
@@ -550,30 +574,32 @@ export const getBreakingNewsHandler = async (
     if (articles.length === 0) {
       try {
         const newsApiArticles = await fetchArticlesFromNewsAPI({
-          category: 'general',
-          language: language === Language.INDONESIAN ? 'id' : 'en',
+          category: "general",
+          language: language === Language.INDONESIAN ? "id" : "en",
           pageSize: limit,
         });
-        
+
         response = {
           success: true,
           data: newsApiArticles.slice(0, limit),
-          source: 'external',
+          source: "external",
         };
       } catch (apiError) {
-        logger.error('NewsAPI fetch error for breaking news', { error: apiError });
+        logger.error("NewsAPI fetch error for breaking news", {
+          error: apiError,
+        });
         response = {
           success: true,
           data: [],
-          source: 'external',
-          message: 'No breaking news available at the moment',
+          source: "external",
+          message: "No breaking news available at the moment",
         };
       }
     } else {
       response = {
         success: true,
         data: articles,
-        source: 'internal',
+        source: "internal",
       };
     }
 
@@ -582,7 +608,7 @@ export const getBreakingNewsHandler = async (
 
     res.status(200).json(response);
   } catch (error) {
-    logger.error('Get breaking news error', { error });
+    logger.error("Get breaking news error", { error });
     next(error);
   }
 };
@@ -594,12 +620,12 @@ export const getTrendingArticlesHandler = async (
   next: NextFunction
 ) => {
   try {
-    const language = req.query.language as Language || Language.ENGLISH;
+    const language = (req.query.language as Language) || Language.ENGLISH;
     const limit = parseInt(req.query.limit as string) || 10;
-    
+
     const cacheKey = `trending:${language}:${limit}`;
     const cachedData = await getCachedData(cacheKey);
-    
+
     if (cachedData) {
       return res.status(200).json(cachedData);
     }
@@ -619,6 +645,9 @@ export const getTrendingArticlesHandler = async (
         image: true,
         publishedAt: true,
         viewCount: true,
+        isExternal: true,
+        sourceUrl: true,
+        source: true,
         author: {
           select: {
             id: true,
@@ -641,7 +670,7 @@ export const getTrendingArticlesHandler = async (
         },
       },
       orderBy: {
-        publishedAt: 'desc',
+        publishedAt: "desc",
       },
       take: limit,
     });
@@ -653,7 +682,7 @@ export const getTrendingArticlesHandler = async (
       response = {
         success: true,
         data: markedTrending,
-        source: 'curated',
+        source: "curated",
       };
     } else {
       // Otherwise, get the most viewed/liked articles from the last 7 days
@@ -676,6 +705,9 @@ export const getTrendingArticlesHandler = async (
           image: true,
           publishedAt: true,
           viewCount: true,
+          isExternal: true,
+          sourceUrl: true,
+          source: true,
           author: {
             select: {
               id: true,
@@ -697,17 +729,14 @@ export const getTrendingArticlesHandler = async (
             },
           },
         },
-        orderBy: [
-          { viewCount: 'desc' },
-          { publishedAt: 'desc' },
-        ],
+        orderBy: [{ viewCount: "desc" }, { publishedAt: "desc" }],
         take: limit,
       });
 
       response = {
         success: true,
         data: trendingArticles,
-        source: 'algorithmic',
+        source: "algorithmic",
       };
     }
 
@@ -716,7 +745,7 @@ export const getTrendingArticlesHandler = async (
 
     res.status(200).json(response);
   } catch (error) {
-    logger.error('Get trending articles error', { error });
+    logger.error("Get trending articles error", { error });
     next(error);
   }
 };
@@ -730,16 +759,19 @@ export const searchArticlesHandler = async (
   try {
     const { q, category, tag, author } = req.query;
     const { page, limit } = getPaginationParams(req);
-    const language = req.query.language as Language || Language.ENGLISH;
-    
+    const language = (req.query.language as Language) || Language.ENGLISH;
+
     if (!q && !category && !tag && !author) {
-      throw new AppError('Please provide a search query, category, tag, or author', 400);
+      throw new AppError(
+        "Please provide a search query, category, tag, or author",
+        400
+      );
     }
 
     // Create cache key based on search parameters
     const cacheKey = `search:${JSON.stringify({ q, category, tag, author, page, limit, language })}`;
     const cachedData = await getCachedData(cacheKey);
-    
+
     if (cachedData) {
       return res.status(200).json(cachedData);
     }
@@ -753,9 +785,9 @@ export const searchArticlesHandler = async (
     if (q) {
       const sanitizedQuery = sanitizeInput({ q: q as string }).q;
       where.OR = [
-        { title: { contains: sanitizedQuery, mode: 'insensitive' } },
-        { content: { contains: sanitizedQuery, mode: 'insensitive' } },
-        { summary: { contains: sanitizedQuery, mode: 'insensitive' } },
+        { title: { contains: sanitizedQuery, mode: "insensitive" } },
+        { content: { contains: sanitizedQuery, mode: "insensitive" } },
+        { summary: { contains: sanitizedQuery, mode: "insensitive" } },
       ];
     }
 
@@ -781,7 +813,7 @@ export const searchArticlesHandler = async (
 
     // Count total articles
     const total = await prisma.article.count({ where });
-    
+
     // Get paginated articles
     const articles = await prisma.article.findMany({
       where,
@@ -793,6 +825,9 @@ export const searchArticlesHandler = async (
         image: true,
         publishedAt: true,
         viewCount: true,
+        isExternal: true,
+        sourceUrl: true,
+        source: true,
         author: {
           select: {
             id: true,
@@ -823,7 +858,7 @@ export const searchArticlesHandler = async (
         },
       },
       orderBy: {
-        publishedAt: 'desc',
+        publishedAt: "desc",
       },
       skip: (page - 1) * limit,
       take: limit,
@@ -836,15 +871,15 @@ export const searchArticlesHandler = async (
       try {
         const newsApiArticles = await fetchArticlesFromNewsAPI({
           q: q as string,
-          language: language === Language.INDONESIAN ? 'id' : 'en',
+          language: language === Language.INDONESIAN ? "id" : "en",
           pageSize: limit,
           page,
         });
-        
+
         response = {
           success: true,
           data: newsApiArticles,
-          source: 'external',
+          source: "external",
           pagination: {
             page,
             limit,
@@ -853,25 +888,25 @@ export const searchArticlesHandler = async (
           },
         };
       } catch (apiError) {
-        logger.error('NewsAPI search error', { error: apiError, query: q });
+        logger.error("NewsAPI search error", { error: apiError, query: q });
         response = {
           success: true,
           data: [],
-          source: 'external',
+          source: "external",
           pagination: {
             page,
             limit,
             total: 0,
             pages: 0,
           },
-          message: 'No search results found',
+          message: "No search results found",
         };
       }
     } else {
       response = {
         success: true,
         data: articles,
-        source: 'internal',
+        source: "internal",
         pagination: {
           page,
           limit,
@@ -886,7 +921,7 @@ export const searchArticlesHandler = async (
 
     res.status(200).json(response);
   } catch (error) {
-    logger.error('Search articles error', { error, query: req.query });
+    logger.error("Search articles error", { error, query: req.query });
     next(error);
   }
 };
@@ -899,7 +934,7 @@ export const updateArticleHandler = async (
 ) => {
   try {
     if (!req.user) {
-      throw new AppError('User not found', 404);
+      throw new AppError("User not found", 404);
     }
 
     const { id } = req.params;
@@ -927,35 +962,38 @@ export const updateArticleHandler = async (
     });
 
     if (!article) {
-      throw new AppError('Article not found', 404);
+      throw new AppError("Article not found", 404);
     }
 
     // Check authorization
     if (article.authorId !== req.user.id && req.user.role !== Role.ADMIN) {
-      throw new AppError('Unauthorized to update this article', 403);
+      throw new AppError("Unauthorized to update this article", 403);
     }
 
     // Validate inputs if provided
     if (title && (title.length < 10 || title.length > 200)) {
-      throw new AppError('Title must be between 10 and 200 characters', 400);
+      throw new AppError("Title must be between 10 and 200 characters", 400);
     }
 
     if (content && content.length < 100) {
-      throw new AppError('Content must be at least 100 characters', 400);
+      throw new AppError("Content must be at least 100 characters", 400);
     }
 
     if (summary && (summary.length < 50 || summary.length > 500)) {
-      throw new AppError('Summary must be between 50 and 500 characters', 400);
+      throw new AppError("Summary must be between 50 and 500 characters", 400);
     }
 
     // Sanitize inputs
     const updateData: any = {};
-    
+
     if (title) {
       updateData.title = sanitizeInput({ title: title.trim() }).title;
       // Update slug if title changed
-      updateData.slug = slugify(updateData.title, { lower: true, strict: true });
-      
+      updateData.slug = slugify(updateData.title, {
+        lower: true,
+        strict: true,
+      });
+
       // Check if new slug exists
       const existingArticle = await prisma.article.findFirst({
         where: {
@@ -963,14 +1001,16 @@ export const updateArticleHandler = async (
           id: { not: id },
         },
       });
-      
+
       if (existingArticle) {
         updateData.slug = `${updateData.slug}-${Date.now()}`;
       }
     }
 
-    if (content) updateData.content = sanitizeInput({ content: content.trim() }).content;
-    if (summary) updateData.summary = sanitizeInput({ summary: summary.trim() }).summary;
+    if (content)
+      updateData.content = sanitizeInput({ content: content.trim() }).content;
+    if (summary)
+      updateData.summary = sanitizeInput({ summary: summary.trim() }).summary;
     if (image !== undefined) updateData.image = image;
     if (categoryId !== undefined) updateData.categoryId = categoryId;
     if (tagIds !== undefined) updateData.tagIds = tagIds;
@@ -1002,10 +1042,7 @@ export const updateArticleHandler = async (
       },
     });
 
-    // Clear related caches
-    // Implementation depends on your cache strategy
-
-    logger.info('Article updated', {
+    logger.info("Article updated", {
       articleId: id,
       updatedBy: req.user.id,
       updatedFields: Object.keys(updateData),
@@ -1013,11 +1050,15 @@ export const updateArticleHandler = async (
 
     res.status(200).json({
       success: true,
-      message: 'Article updated successfully',
+      message: "Article updated successfully",
       data: updatedArticle,
     });
   } catch (error) {
-    logger.error('Update article error', { error, articleId: req.params.id, userId: req.user?.id });
+    logger.error("Update article error", {
+      error,
+      articleId: req.params.id,
+      userId: req.user?.id,
+    });
     next(error);
   }
 };
@@ -1030,7 +1071,7 @@ export const deleteArticleHandler = async (
 ) => {
   try {
     if (!req.user) {
-      throw new AppError('User not found', 404);
+      throw new AppError("User not found", 404);
     }
 
     const { id } = req.params;
@@ -1049,7 +1090,7 @@ export const deleteArticleHandler = async (
     });
 
     if (!article) {
-      throw new AppError('Article not found', 404);
+      throw new AppError("Article not found", 404);
     }
 
     // Delete article (this will cascade to related records)
@@ -1057,7 +1098,7 @@ export const deleteArticleHandler = async (
       where: { id },
     });
 
-    logger.info('Article deleted', {
+    logger.info("Article deleted", {
       articleId: id,
       articleTitle: article.title,
       deletedBy: req.user.id,
@@ -1066,10 +1107,14 @@ export const deleteArticleHandler = async (
 
     res.status(200).json({
       success: true,
-      message: 'Article deleted successfully',
+      message: "Article deleted successfully",
     });
   } catch (error) {
-    logger.error('Delete article error', { error, articleId: req.params.id, userId: req.user?.id });
+    logger.error("Delete article error", {
+      error,
+      articleId: req.params.id,
+      userId: req.user?.id,
+    });
     next(error);
   }
 };
@@ -1083,15 +1128,15 @@ export const getArticlesByCategoryHandler = async (
   try {
     const { slug } = req.params;
     const { page, limit } = getPaginationParams(req);
-    const language = req.query.language as Language || Language.ENGLISH;
-    
+    const language = (req.query.language as Language) || Language.ENGLISH;
+
     if (!slug) {
-      throw new AppError('Category slug is required', 400);
+      throw new AppError("Category slug is required", 400);
     }
 
     const cacheKey = `category:${slug}:${page}:${limit}:${language}`;
     const cachedData = await getCachedData(cacheKey);
-    
+
     if (cachedData) {
       return res.status(200).json(cachedData);
     }
@@ -1102,7 +1147,7 @@ export const getArticlesByCategoryHandler = async (
     });
 
     if (!category) {
-      throw new AppError('Category not found', 404);
+      throw new AppError("Category not found", 404);
     }
 
     // Count total articles
@@ -1113,7 +1158,7 @@ export const getArticlesByCategoryHandler = async (
         language,
       },
     });
-    
+
     // Get paginated articles
     const articles = await prisma.article.findMany({
       where: {
@@ -1129,6 +1174,9 @@ export const getArticlesByCategoryHandler = async (
         image: true,
         publishedAt: true,
         viewCount: true,
+        isExternal: true,
+        sourceUrl: true,
+        source: true,
         author: {
           select: {
             id: true,
@@ -1151,7 +1199,7 @@ export const getArticlesByCategoryHandler = async (
         },
       },
       orderBy: {
-        publishedAt: 'desc',
+        publishedAt: "desc",
       },
       skip: (page - 1) * limit,
       take: limit,
@@ -1164,16 +1212,16 @@ export const getArticlesByCategoryHandler = async (
       try {
         const newsApiArticles = await fetchArticlesFromNewsAPI({
           category: slug,
-          language: language === Language.INDONESIAN ? 'id' : 'en',
+          language: language === Language.INDONESIAN ? "id" : "en",
           pageSize: limit,
           page,
         });
-        
+
         response = {
           success: true,
           data: newsApiArticles,
           category,
-          source: 'external',
+          source: "external",
           pagination: {
             page,
             limit,
@@ -1182,12 +1230,15 @@ export const getArticlesByCategoryHandler = async (
           },
         };
       } catch (apiError) {
-        logger.error('NewsAPI category fetch error', { error: apiError, category: slug });
+        logger.error("NewsAPI category fetch error", {
+          error: apiError,
+          category: slug,
+        });
         response = {
           success: true,
           data: [],
           category,
-          source: 'external',
+          source: "external",
           pagination: {
             page,
             limit,
@@ -1201,7 +1252,7 @@ export const getArticlesByCategoryHandler = async (
         success: true,
         data: articles,
         category,
-        source: 'internal',
+        source: "internal",
         pagination: {
           page,
           limit,
@@ -1216,7 +1267,10 @@ export const getArticlesByCategoryHandler = async (
 
     res.status(200).json(response);
   } catch (error) {
-    logger.error('Get articles by category error', { error, slug: req.params.slug });
+    logger.error("Get articles by category error", {
+      error,
+      slug: req.params.slug,
+    });
     next(error);
   }
 };
@@ -1229,13 +1283,13 @@ export const getRecommendedArticlesHandler = async (
 ) => {
   try {
     if (!req.user) {
-      throw new AppError('User not found', 404);
+      throw new AppError("User not found", 404);
     }
 
     const limit = parseInt(req.query.limit as string) || 10;
     const cacheKey = `recommended:${req.user.id}:${limit}`;
     const cachedData = await getCachedData(cacheKey);
-    
+
     if (cachedData) {
       return res.status(200).json(cachedData);
     }
@@ -1247,7 +1301,7 @@ export const getRecommendedArticlesHandler = async (
       }),
       prisma.readHistory.findMany({
         where: { userId: req.user.id },
-        orderBy: { readAt: 'desc' },
+        orderBy: { readAt: "desc" },
         take: 20,
         include: {
           article: {
@@ -1263,15 +1317,18 @@ export const getRecommendedArticlesHandler = async (
 
     // Extract categories and tags from reading history
     const readCategoryIds = readingHistory
-      .map(history => history.article.categoryId)
+      .map((history) => history.article.categoryId)
       .filter(Boolean) as string[];
-    
-    const readTagIds = readingHistory
-      .flatMap(history => history.article.tagIds || []);
+
+    const readTagIds = readingHistory.flatMap(
+      (history) => history.article.tagIds || []
+    );
 
     // Combine with user preferences
     const preferredCategoryIds = userPreference?.categories || [];
-    const allCategoryIds = [...new Set([...readCategoryIds, ...preferredCategoryIds])];
+    const allCategoryIds = [
+      ...new Set([...readCategoryIds, ...preferredCategoryIds]),
+    ];
 
     // Build recommendation query with scoring
     let where: any = {
@@ -1280,7 +1337,7 @@ export const getRecommendedArticlesHandler = async (
     };
 
     // Exclude recently read articles
-    const readArticleIds = readingHistory.map(history => history.articleId);
+    const readArticleIds = readingHistory.map((history) => history.articleId);
     if (readArticleIds.length > 0) {
       where.id = {
         notIn: readArticleIds,
@@ -1290,7 +1347,7 @@ export const getRecommendedArticlesHandler = async (
     // Create scoring query for recommendations
     if (allCategoryIds.length > 0 || readTagIds.length > 0) {
       where.OR = [];
-      
+
       if (allCategoryIds.length > 0) {
         where.OR.push({
           categoryId: {
@@ -1298,7 +1355,7 @@ export const getRecommendedArticlesHandler = async (
           },
         });
       }
-      
+
       if (readTagIds.length > 0) {
         where.OR.push({
           tagIds: {
@@ -1319,6 +1376,9 @@ export const getRecommendedArticlesHandler = async (
         image: true,
         publishedAt: true,
         viewCount: true,
+        isExternal: true,
+        sourceUrl: true,
+        source: true,
         author: {
           select: {
             id: true,
@@ -1347,10 +1407,7 @@ export const getRecommendedArticlesHandler = async (
           },
         },
       },
-      orderBy: [
-        { publishedAt: 'desc' },
-        { viewCount: 'desc' },
-      ],
+      orderBy: [{ publishedAt: "desc" }, { viewCount: "desc" }],
       take: limit,
     });
 
@@ -1364,7 +1421,10 @@ export const getRecommendedArticlesHandler = async (
 
     res.status(200).json(response);
   } catch (error) {
-    logger.error('Get recommended articles error', { error, userId: req.user?.id });
+    logger.error("Get recommended articles error", {
+      error,
+      userId: req.user?.id,
+    });
     next(error);
   }
 };
@@ -1379,7 +1439,7 @@ export const incrementViewCountHandler = async (
     const { id } = req.params;
 
     if (!id) {
-      throw new AppError('Article ID is required', 400);
+      throw new AppError("Article ID is required", 400);
     }
 
     // Check if article exists
@@ -1389,7 +1449,7 @@ export const incrementViewCountHandler = async (
     });
 
     if (!article) {
-      throw new AppError('Article not found', 404);
+      throw new AppError("Article not found", 404);
     }
 
     // Update view count
@@ -1404,10 +1464,13 @@ export const incrementViewCountHandler = async (
 
     res.status(200).json({
       success: true,
-      message: 'View count updated',
+      message: "View count updated",
     });
   } catch (error) {
-    logger.error('Increment view count error', { error, articleId: req.params.id });
+    logger.error("Increment view count error", {
+      error,
+      articleId: req.params.id,
+    });
     next(error);
   }
 };
@@ -1422,7 +1485,7 @@ export const incrementShareCountHandler = async (
     const { id } = req.params;
 
     if (!id) {
-      throw new AppError('Article ID is required', 400);
+      throw new AppError("Article ID is required", 400);
     }
 
     // Check if article exists
@@ -1432,7 +1495,7 @@ export const incrementShareCountHandler = async (
     });
 
     if (!article) {
-      throw new AppError('Article not found', 404);
+      throw new AppError("Article not found", 404);
     }
 
     // Update share count
@@ -1447,10 +1510,13 @@ export const incrementShareCountHandler = async (
 
     res.status(200).json({
       success: true,
-      message: 'Share count updated',
+      message: "Share count updated",
     });
   } catch (error) {
-    logger.error('Increment share count error', { error, articleId: req.params.id });
+    logger.error("Increment share count error", {
+      error,
+      articleId: req.params.id,
+    });
     next(error);
   }
 };

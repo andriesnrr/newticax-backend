@@ -37,6 +37,36 @@ interface NewsAPIResponse {
   articles: NewsAPIArticle[];
 }
 
+// Helper function untuk membersihkan konten dari "[+XXXX chars]"
+const cleanContent = (content: string | null): string => {
+  if (!content) return '';
+  
+  // Remove "[+XXXX chars]" pattern dari akhir string
+  return content.replace(/\[\+\d+\s*chars?\]$/i, '').trim();
+};
+
+// Helper function untuk membuat summary yang lebih baik
+const createBetterSummary = (title: string, description: string | null, content: string | null): string => {
+  // Prioritas: description > content > title
+  if (description && description.length > 50) {
+    return cleanContent(description);
+  }
+  
+  if (content && content.length > 50) {
+    const cleanedContent = cleanContent(content);
+    // Ambil 200 karakter pertama dan potong di kata terakhir
+    if (cleanedContent.length > 200) {
+      const truncated = cleanedContent.substring(0, 200);
+      const lastSpaceIndex = truncated.lastIndexOf(' ');
+      return lastSpaceIndex > 100 ? truncated.substring(0, lastSpaceIndex) + '...' : truncated + '...';
+    }
+    return cleanedContent;
+  }
+  
+  // Fallback ke title jika tidak ada description/content
+  return title.length > 100 ? title.substring(0, 100) + '...' : title;
+};
+
 // Function to fetch articles from NewsAPI
 export const fetchArticlesFromNewsAPI = async (params: NewsAPIParams): Promise<any[]> => {
   try {
@@ -67,16 +97,23 @@ export const fetchArticlesFromNewsAPI = async (params: NewsAPIParams): Promise<a
 
     const { articles } = response.data as NewsAPIResponse;
 
-    // Format articles
+    // Format articles dengan cleaning yang lebih baik
     const formattedArticles = articles.map(article => {
       const slug = slugify(article.title, { lower: true, strict: true }) || Date.now().toString();
+      
+      // Clean content dan description
+      const cleanedContent = cleanContent(article.content);
+      const cleanedDescription = cleanContent(article.description);
+      
+      // Buat summary yang lebih informatif
+      const betterSummary = createBetterSummary(article.title, cleanedDescription, cleanedContent);
       
       return {
         id: `ext-${Buffer.from(article.url).toString('base64').substring(0, 20)}`,
         title: article.title,
         slug,
-        content: article.content || article.description || '',
-        summary: article.description || '',
+        content: cleanedContent || cleanedDescription || betterSummary,
+        summary: betterSummary,
         image: article.urlToImage,
         source: article.source.name,
         sourceUrl: article.url,
@@ -87,6 +124,8 @@ export const fetchArticlesFromNewsAPI = async (params: NewsAPIParams): Promise<a
         author: article.author ? { name: article.author } : null,
         viewCount: 0,
         shareCount: 0,
+        // Flag untuk menandai artikel yang kontennya terpotong
+        isContentTruncated: article.content?.includes('[+') || false,
       };
     });
 
@@ -164,13 +203,18 @@ export const syncNewsFromAPI = async (categories: string[] = ['general'], langua
 
             if (!existingArticle) {
               const slug = slugify(article.title, { lower: true, strict: true }) || Date.now().toString();
+              
+              // Clean content dan description
+              const cleanedContent = cleanContent(article.content);
+              const cleanedDescription = cleanContent(article.description);
+              const betterSummary = createBetterSummary(article.title, cleanedDescription, cleanedContent);
 
               await prisma.article.create({
                 data: {
                   title: article.title,
                   slug,
-                  content: article.content || article.description || '',
-                  summary: article.description || '',
+                  content: cleanedContent || cleanedDescription || betterSummary,
+                  summary: betterSummary,
                   image: article.urlToImage,
                   source: article.source.name,
                   sourceUrl: article.url,
