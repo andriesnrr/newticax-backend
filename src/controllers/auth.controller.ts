@@ -1,27 +1,15 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
-import rateLimit from 'express-rate-limit';
 import { prisma } from '../config/db';
 import { generateToken, clearToken, blacklistToken } from '../utils/jwt';
 import { env } from '../config/env';
 import { AppError } from '../utils/errorHandler';
-import { Language, Provider, Role, User as PrismaUser } from '@prisma/client';
+import { Language, Provider, Role } from '@prisma/client';
 import { AuthRequest, RegisterInput, LoginInput, ProfileUpdateInput, PasswordUpdateInput } from '../types';
 import { logger } from '../utils/logger';
 import { sanitizeInput } from '../utils/sanitize';
 
-// Enhanced salt rounds for better security
 const SALT_ROUNDS = 12;
-
-// Rate limiting for sensitive operations
-export const passwordResetLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3, // 3 attempts per hour
-  message: {
-    success: false,
-    message: 'Too many password reset attempts, please try again later.',
-  },
-});
 
 // Enhanced getMeHandler to prevent loops
 export const getMeHandler = async (
@@ -30,25 +18,16 @@ export const getMeHandler = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    // Debug logging
     console.log('🔍 getMeHandler called:', {
       hasUser: !!req.user,
       userId: req.user?.id,
-      userAgent: req.get('User-Agent')?.substring(0, 50),
       ip: req.ip,
       timestamp: new Date().toISOString(),
     });
 
     if (!req.user || !req.user.id) {
-      // Clear any invalid cookies to prevent frontend loops
-      res.clearCookie('token', {
-        httpOnly: true,
-        secure: env.NODE_ENV === 'production',
-        sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none',
-        path: '/',
-      });
+      clearToken(res);
       
-      // Add specific headers for frontend to handle
       res.setHeader('X-Auth-Status', 'required');
       res.setHeader('X-Auth-Required', 'true');
       res.setHeader('X-Clear-Token', 'true');
@@ -57,7 +36,6 @@ export const getMeHandler = async (
         hasUser: !!req.user,
         userId: req.user?.id,
         ip: req.ip,
-        userAgent: req.get('User-Agent'),
       });
       
       res.status(401).json({
@@ -65,16 +43,10 @@ export const getMeHandler = async (
         message: 'Authentication required',
         code: 'AUTH_REQUIRED',
         action: 'redirect_to_login',
-        debug: {
-          hasUser: !!req.user,
-          hasUserId: !!(req.user?.id),
-          timestamp: new Date().toISOString(),
-        }
       });
       return;
     }
 
-    // Get fresh user data from database
     const userWithDetails = await prisma.user.findUnique({
       where: { id: req.user.id },
       include: {
@@ -91,41 +63,23 @@ export const getMeHandler = async (
     });
 
     if (!userWithDetails) {
-      // User exists in token but not in database - clear token
-      res.clearCookie('token', {
-        httpOnly: true,
-        secure: env.NODE_ENV === 'production',
-        sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none',
-        path: '/',
-      });
+      clearToken(res);
       
       res.setHeader('X-Auth-Status', 'invalid');
       res.setHeader('X-User-Not-Found', 'true');
       res.setHeader('X-Clear-Token', 'true');
-      
-      logger.warn('getMeHandler: Authenticated user not found in database', {
-        userId: req.user.id,
-        ip: req.ip,
-        userAgent: req.get('User-Agent'),
-      });
       
       res.status(401).json({
         success: false,
         message: 'User account no longer exists',
         code: 'USER_NOT_FOUND',
         action: 'redirect_to_login',
-        debug: {
-          tokenUserId: req.user.id,
-          timestamp: new Date().toISOString(),
-        }
       });
       return;
     }
 
-    // Remove password from response
     const { password, ...userData } = userWithDetails;
     
-    // Add success headers
     res.setHeader('X-Auth-Status', 'authenticated');
     res.setHeader('X-User-Valid', 'true');
     
@@ -135,37 +89,14 @@ export const getMeHandler = async (
       role: userData.role,
     });
     
-    logger.info('getMeHandler: User authenticated successfully', {
-      userId: userData.id,
-      email: userData.email,
-      ip: req.ip,
-    });
-    
     res.status(200).json({
       success: true,
       data: userData,
-      debug: {
-        authenticated: true,
-        timestamp: new Date().toISOString(),
-      }
     });
   } catch (error) {
     console.error('❌ getMeHandler error:', error);
     
-    logger.error('getMeHandler error', { 
-      error: error instanceof Error ? error.message : 'Unknown error',
-      userId: req.user?.id,
-      ip: req.ip,
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    
-    // Clear token on error to prevent loops
-    res.clearCookie('token', {
-      httpOnly: true,
-      secure: env.NODE_ENV === 'production',
-      sameSite: env.NODE_ENV === 'production' ? 'lax' : 'none',
-      path: '/',
-    });
+    clearToken(res);
     
     res.setHeader('X-Auth-Status', 'error');
     res.setHeader('X-Auth-Error', 'true');
@@ -176,10 +107,6 @@ export const getMeHandler = async (
       message: 'Internal server error during authentication',
       code: 'AUTH_INTERNAL_ERROR',
       action: 'retry_or_login',
-      debug: {
-        error: env.NODE_ENV === 'development' ? (error as Error)?.message : 'Hidden in production',
-        timestamp: new Date().toISOString(),
-      }
     });
   }
 };
@@ -195,20 +122,17 @@ export const registerHandler = async (
 
     console.log('📝 Registration attempt:', { email, username, name });
 
-    // Enhanced validation
     if (!name || !email || !password || !username) {
       next(new AppError('Name, email, username, and password are required', 400));
       return;
     }
     
-    // Sanitize inputs
     const sanitizedData = sanitizeInput({
       name: name.trim(),
       email: email.toLowerCase().trim(),
       username: username.toLowerCase().trim(),
     });
 
-    // Enhanced password validation
     if (password.length < 8) {
       next(new AppError('Password must be at least 8 characters long', 400));
       return;
@@ -219,14 +143,12 @@ export const registerHandler = async (
       return;
     }
 
-    // Enhanced email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(sanitizedData.email)) {
       next(new AppError('Please provide a valid email address', 400));
       return;
     }
 
-    // Username validation
     if (sanitizedData.username.length < 3 || sanitizedData.username.length > 30) {
       next(new AppError('Username must be between 3 and 30 characters', 400));
       return;
@@ -237,7 +159,6 @@ export const registerHandler = async (
       return;
     }
 
-    // Check for existing user
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: [
@@ -258,11 +179,9 @@ export const registerHandler = async (
       }
     }
 
-    // Hash password with higher salt rounds
     const salt = await bcrypt.genSalt(SALT_ROUNDS);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create user with transaction
     const result = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
@@ -275,7 +194,6 @@ export const registerHandler = async (
         },
       });
 
-      // Create default preferences
       await tx.preference.create({
         data: {
           userId: user.id,
@@ -286,30 +204,34 @@ export const registerHandler = async (
       return user;
     });
 
-    // Generate token
     const token = generateToken(result.id, result.role);
 
-    // Set secure cookie with enhanced options
+    // CRITICAL: Enhanced cookie setting for cross-origin
     const cookieOptions = {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
       maxAge: env.COOKIE_EXPIRES,
-      sameSite: env.NODE_ENV === 'production' ? 'lax' as const : 'none' as const,
+      sameSite: env.NODE_ENV === 'production' ? 'none' as const : 'lax' as const,
       path: '/',
+      domain: env.NODE_ENV === 'production' ? undefined : undefined, // Let browser handle domain
     };
 
     res.cookie('token', token, cookieOptions);
 
-    // Remove password from response
+    // Add explicit headers for debugging
+    res.setHeader('X-Cookie-Set', 'true');
+    res.setHeader('X-Cookie-Options', JSON.stringify(cookieOptions));
+    res.setHeader('X-Auth-Token-Generated', 'true');
+
     const { password: _, ...userData } = result;
     
     console.log('✅ Registration successful:', {
       userId: result.id,
       email: result.email,
       username: result.username,
+      cookieSet: true,
     });
     
-    // Log successful registration
     logger.info('User registered successfully', {
       userId: result.id,
       email: result.email,
@@ -322,9 +244,10 @@ export const registerHandler = async (
       success: true,
       message: 'Registration successful',
       data: userData,
-      token: env.NODE_ENV === 'development' ? token : undefined, // Include for debugging in dev
       debug: {
         cookieSet: true,
+        tokenGenerated: true,
+        environment: env.NODE_ENV,
         timestamp: new Date().toISOString(),
       }
     });
@@ -335,7 +258,7 @@ export const registerHandler = async (
   }
 };
 
-// Enhanced loginHandler - CRITICAL FIXES
+// CRITICAL: Enhanced loginHandler with improved cookie handling
 export const loginHandler = async (
   req: Request,
   res: Response,
@@ -344,23 +267,28 @@ export const loginHandler = async (
   try {
     const { email, password, rememberMe = false } = req.body as LoginInput & { rememberMe?: boolean };
     
-    console.log('🔐 Login attempt:', { email, rememberMe, ip: req.ip });
+    console.log('🔐 Login attempt:', { 
+      email, 
+      rememberMe, 
+      ip: req.ip,
+      origin: req.get('Origin'),
+      userAgent: req.get('User-Agent')?.substring(0, 50),
+    });
     
     if (!email || !password) {
       next(new AppError('Email and password are required', 400));
       return;
     }
 
-    // Sanitize email
     const sanitizedEmail = email.toLowerCase().trim();
 
     logger.info('Login attempt started', {
       email: sanitizedEmail,
       ip: req.ip,
       userAgent: req.get('User-Agent'),
+      origin: req.get('Origin'),
     });
 
-    // Find user with password field
     const user = await prisma.user.findUnique({
       where: { email: sanitizedEmail },
       include: {
@@ -369,7 +297,6 @@ export const loginHandler = async (
     });
 
     if (!user) {
-      // Log failed login attempt
       logger.warn('Login attempt with non-existent email', {
         email: sanitizedEmail,
         ip: req.ip,
@@ -388,7 +315,6 @@ export const loginHandler = async (
       return;
     }
 
-    // Verify password
     const isPasswordMatch = await bcrypt.compare(password, user.password);
 
     if (!isPasswordMatch) {
@@ -401,29 +327,42 @@ export const loginHandler = async (
       return;
     }
 
-    // Generate token with extended expiry if remember me is checked
     const tokenExpiry = rememberMe ? 30 * 24 * 60 * 60 * 1000 : env.COOKIE_EXPIRES; // 30 days vs default
     const token = generateToken(user.id, user.role);
 
-    // CRITICAL: Enhanced cookie options for cross-origin
+    // CRITICAL: Enhanced cookie options for cross-origin Railway + Vercel
     const cookieOptions = {
       httpOnly: true,
-      secure: env.NODE_ENV === 'production',
+      secure: env.NODE_ENV === 'production', // true for HTTPS
       maxAge: tokenExpiry,
-      sameSite: env.NODE_ENV === 'production' ? 'lax' as const : 'none' as const,
+      sameSite: env.NODE_ENV === 'production' ? 'none' as const : 'lax' as const, // 'none' for cross-origin
       path: '/',
+      // Don't set domain in production - let browser handle it
     };
 
-    // Set cookie with debug logging
+    console.log('🍪 Setting login cookie with options:', {
+      secure: cookieOptions.secure,
+      sameSite: cookieOptions.sameSite,
+      httpOnly: cookieOptions.httpOnly,
+      maxAge: cookieOptions.maxAge,
+      path: cookieOptions.path,
+      environment: env.NODE_ENV,
+    });
+
     res.cookie('token', token, cookieOptions);
 
-    // Update last login
+    // Add explicit headers for frontend debugging
+    res.setHeader('X-Cookie-Set', 'true');
+    res.setHeader('X-Cookie-Secure', cookieOptions.secure.toString());
+    res.setHeader('X-Cookie-SameSite', cookieOptions.sameSite);
+    res.setHeader('X-Auth-Token-Generated', 'true');
+    res.setHeader('X-Login-Success', 'true');
+
     await prisma.user.update({
       where: { id: user.id },
       data: { updatedAt: new Date() },
     });
     
-    // Remove password from response
     const { password: _, ...userData } = user;
     
     console.log('✅ Login successful:', {
@@ -431,9 +370,10 @@ export const loginHandler = async (
       email: user.email,
       role: user.role,
       rememberMe,
+      cookieSet: true,
+      origin: req.get('Origin'),
     });
     
-    // Enhanced logging
     logger.info('User logged in successfully', {
       userId: user.id,
       email: user.email,
@@ -441,27 +381,23 @@ export const loginHandler = async (
       rememberMe,
       cookieSet: true,
       tokenExpiry: tokenExpiry / (24 * 60 * 60 * 1000) + ' days',
+      origin: req.get('Origin'),
     });
 
-    // Debug logging for cookie
-    console.log('🍪 LOGIN COOKIE DEBUG:', {
-      tokenPreview: token.substring(0, 20) + '...',
-      cookieOptions,
-      nodeEnv: env.NODE_ENV,
-      userEmail: user.email,
-      userId: user.id,
-    });
-    
-    // CRITICAL: Return comprehensive response
+    // CRITICAL: Return comprehensive response for frontend
     res.status(200).json({
       success: true,
       message: 'Login successful',
       data: userData,
-      token: env.NODE_ENV === 'development' ? token : undefined, // Include for debugging in dev
       debug: {
         cookieSet: true,
         nodeEnv: env.NODE_ENV,
         tokenExpiry: tokenExpiry,
+        cookieOptions: {
+          secure: cookieOptions.secure,
+          sameSite: cookieOptions.sameSite,
+          httpOnly: cookieOptions.httpOnly,
+        },
         timestamp: new Date().toISOString(),
       }
     });
@@ -478,7 +414,6 @@ export const logoutHandler = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    // Extract token from cookie or header
     const token = req.cookies.token || req.headers.authorization?.replace('Bearer ', '');
     
     console.log('🚪 Logout attempt:', {
@@ -488,20 +423,16 @@ export const logoutHandler = async (
     });
     
     if (token) {
-      // Add token to blacklist
       blacklistToken(token);
       
-      // Log logout
       logger.info('User logged out', {
         userId: req.user?.id,
         ip: req.ip,
       });
     }
 
-    // Clear token cookie
     clearToken(res);
     
-    // Add headers to confirm logout
     res.setHeader('X-Auth-Status', 'logged_out');
     res.setHeader('X-Clear-Token', 'true');
     
@@ -522,42 +453,6 @@ export const logoutHandler = async (
   }
 };
 
-export const socialLoginCallbackHandler = (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): void => {
-  try {
-    if (!req.user) {
-      logger.warn('Social login callback without user', { ip: req.ip });
-      res.redirect(`${env.FRONTEND_URL}/login?error=social_auth_failed`);
-      return;
-    }
-
-    const user = req.user as PrismaUser;
-    const token = generateToken(user.id, user.role);
-
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: env.NODE_ENV === 'production',
-      maxAge: env.COOKIE_EXPIRES,
-      sameSite: 'lax',
-      path: '/',
-    });
-
-    logger.info('Social login successful', {
-      userId: user.id,
-      provider: user.provider,
-      ip: req.ip,
-    });
-
-    res.redirect(`${env.FRONTEND_URL}/auth/success`);
-  } catch (error) {
-    logger.error('Social login callback error', { error });
-    res.redirect(`${env.FRONTEND_URL}/login?error=social_processing_error`);
-  }
-};
-
 export const updateProfileHandler = async (
   req: AuthRequest,
   res: Response,
@@ -571,13 +466,11 @@ export const updateProfileHandler = async (
 
     const { name, bio, image } = req.body as ProfileUpdateInput;
 
-    // Validate input
     if (!name && !bio && image === undefined) {
       next(new AppError('At least one field (name, bio, or image) is required', 400));
       return;
     }
 
-    // Sanitize inputs
     const updateData: Partial<ProfileUpdateInput> = {};
     
     if (name) {
@@ -645,7 +538,6 @@ export const updatePasswordHandler = async (
       return;
     }
 
-    // Enhanced password validation
     if (newPassword.length < 8) {
       next(new AppError('New password must be at least 8 characters long', 400));
       return;
@@ -757,14 +649,12 @@ export const updatePreferenceHandler = async (
     
     const { categories, notifications, darkMode, emailUpdates } = req.body;
 
-    // Validate categories if provided
     if (categories && Array.isArray(categories)) {
       if (categories.length > 10) {
         next(new AppError('Maximum 10 categories allowed', 400));
         return;
       }
       
-      // Validate that all categories exist
       const validCategories = await prisma.category.findMany({
         where: { id: { in: categories } },
         select: { id: true },

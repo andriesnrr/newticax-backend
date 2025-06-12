@@ -1,4 +1,3 @@
-// ===== src/app.ts - COMPLETELY FIXED VERSION FOR RAILWAY =====
 import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
@@ -15,34 +14,6 @@ import { logger } from './utils/logger';
 
 console.log('🚀 Starting NewticaX API...');
 
-// Declare global types for loop prevention
-declare global {
-  namespace NodeJS {
-    interface Global {
-      clientPatterns: Map<string, {
-        lastRequest: number;
-        requestCount: number;
-        consecutiveFailures: number;
-        blocked: boolean;
-        blockUntil: number;
-      }>;
-    }
-  }
-  var clientPatterns: Map<string, {
-    lastRequest: number;
-    requestCount: number;
-    consecutiveFailures: number;
-    blocked: boolean;
-    blockUntil: number;
-  }>;
-}
-
-// Handle uncaught exceptions early
-process.on('uncaughtException', (err) => {
-  console.error('🔥 Uncaught Exception:', err);
-  process.exit(1);
-});
-
 // Load environment variables
 dotenv.config();
 
@@ -52,10 +23,10 @@ validateEnv();
 // Create Express app
 const app = express();
 
-// Trust proxy for Railway/Vercel deployment
-app.set('trust proxy', 1);
+// CRITICAL: Trust proxy for Railway deployment
+app.set('trust proxy', true);
 
-// Security headers - optimized for Railway
+// Enhanced Security headers for Railway + Vercel
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
@@ -69,7 +40,7 @@ app.use(helmet({
 // Rate limiting configurations
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Generous limit for general API usage
+  max: 1000,
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again later.',
@@ -77,16 +48,12 @@ const generalLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => {
-    // Skip rate limiting for health checks and root
-    return req.path === '/health' || req.path === '/';
-  }
+  skip: (req) => req.path === '/health' || req.path === '/',
 });
 
-// Special rate limiter for auth endpoints
 const authRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // Increased from 30 to 50 for better UX
+  windowMs: 15 * 60 * 1000,
+  max: 50,
   message: {
     success: false,
     message: 'Too many authentication requests, please wait a moment.',
@@ -96,40 +63,20 @@ const authRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  handler: (req: Request, res: Response) => {
-    const clientIP = req.ip || 'unknown';
-    
-    logger.warn('Auth rate limit exceeded', {
-      ip: clientIP,
-      endpoint: req.path,
-      method: req.method,
-      userAgent: req.get('User-Agent'),
-      timestamp: new Date().toISOString(),
-    });
-
-    res.status(429).json({
-      success: false,
-      message: 'Too many authentication requests, please wait a moment.',
-      code: 'AUTH_RATE_LIMIT_EXCEEDED',
-      retryAfter: Math.ceil(15 * 60),
-      hint: 'If you are experiencing loops, please check your frontend authentication logic',
-      debug: {
-        endpoint: req.path,
-        method: req.method,
-        timestamp: new Date().toISOString(),
-      }
-    });
-  },
 });
 
-// Apply general rate limiting to all routes
 app.use(generalLimiter);
 
-// CORS configuration - ENHANCED FOR RAILWAY
+// FIXED: Enhanced CORS configuration for Railway + Vercel
 app.use(cors({
   origin: function (origin, callback) {
+    console.log('🌐 CORS Check - Origin:', origin);
+    
     // Allow requests with no origin (mobile apps, curl, etc.)
-    if (!origin) return callback(null, true);
+    if (!origin) {
+      console.log('✅ CORS: No origin - allowing');
+      return callback(null, true);
+    }
     
     const allowedOrigins = [
       'https://newticax.vercel.app',
@@ -140,34 +87,53 @@ app.use(cors({
       'http://127.0.0.1:3001',
     ];
     
-    // Allow any Railway or Vercel preview domains
-    if (origin.includes('.railway.app') || 
-        origin.includes('.vercel.app') ||
-        origin.includes('localhost') ||
-        origin.includes('127.0.0.1')) {
+    // Check exact matches first
+    if (allowedOrigins.includes(origin)) {
+      console.log('✅ CORS: Exact match allowed -', origin);
       return callback(null, true);
     }
     
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      logger.warn('CORS blocked origin', { origin });
-      callback(new Error('Not allowed by CORS'));
+    // Allow any Vercel preview domains
+    if (origin.includes('.vercel.app')) {
+      console.log('✅ CORS: Vercel domain allowed -', origin);
+      return callback(null, true);
     }
+    
+    // Allow Railway domains
+    if (origin.includes('.railway.app')) {
+      console.log('✅ CORS: Railway domain allowed -', origin);
+      return callback(null, true);
+    }
+    
+    // Allow localhost with any port
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      console.log('✅ CORS: Localhost allowed -', origin);
+      return callback(null, true);
+    }
+    
+    console.log('❌ CORS: Origin blocked -', origin);
+    logger.warn('CORS blocked origin', { origin });
+    callback(new Error('Not allowed by CORS'));
   },
-  credentials: true, // CRITICAL: Must be true for cookies
+  
+  // CRITICAL: Must be true for cookies to work cross-origin
+  credentials: true,
+  
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  
   allowedHeaders: [
     'Content-Type', 
-    'Authorization', // CRITICAL for Bearer tokens
+    'Authorization',
     'X-Requested-With', 
     'Accept', 
     'Origin', 
     'Cookie',
     'Set-Cookie',
     'Cache-Control',
-    'Pragma'
+    'Pragma',
+    'X-CSRF-Token'
   ],
+  
   exposedHeaders: [
     'X-Total-Count', 
     'X-Cache-Status', 
@@ -178,24 +144,32 @@ app.use(cors({
     'X-Rate-Limit-Remaining',
     'X-Rate-Limit-Reset'
   ],
-  maxAge: 86400, // 24 hours preflight cache
+  
+  // Cache preflight for 24 hours
+  maxAge: 86400,
 }));
+
+// Handle preflight requests explicitly
+app.options('*', (req, res) => {
+  console.log('🔄 OPTIONS preflight request:', req.path);
+  res.header('Access-Control-Allow-Origin', req.get('Origin') || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With, Accept, Origin, Cookie, Set-Cookie');
+  res.sendStatus(200);
+});
 
 // Enhanced request logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   const startTime = Date.now();
   const isAuthEndpoint = req.url.startsWith('/api/auth/');
-  const isMeEndpoint = req.path === '/api/auth/me';
   
   if (isAuthEndpoint) {
     console.log(`🔐 AUTH ${req.method} ${req.url} - ${req.ip} [${new Date().toISOString()}]`);
     console.log(`🌐 Origin: ${req.get('Origin') || 'none'}`);
     console.log(`🔑 Auth Header: ${req.get('Authorization') ? 'present' : 'none'}`);
     console.log(`🍪 Cookie: ${req.cookies?.token ? 'present' : 'none'}`);
-    
-    if (isMeEndpoint) {
-      console.log(`🔍 /me endpoint called - checking for auth loops`);
-    }
+    console.log(`📋 User-Agent: ${req.get('User-Agent')?.substring(0, 50)}...`);
   }
 
   res.on('finish', () => {
@@ -206,158 +180,44 @@ app.use((req: Request, res: Response, next: NextFunction) => {
       
       if (res.statusCode === 200) {
         if (req.url.includes('/login')) {
-          console.log(`✅ LOGIN SUCCESS - Cookie set: ${res.headersSent ? 'yes' : 'no'}`);
-        } else if (isMeEndpoint) {
-          console.log(`✅ /me SUCCESS - User authenticated`);
+          console.log(`✅ LOGIN SUCCESS - Cookie will be set`);
         }
       } else if (res.statusCode === 401) {
         console.warn(`⚠️ AUTH FAILED: ${req.url} - Check token presence and validity`);
-        if (isMeEndpoint) {
-          console.warn(`⚠️ /me endpoint returned 401 - this might cause frontend loops`);
-        }
-      } else if (res.statusCode === 429) {
-        console.warn(`🚫 RATE LIMITED: ${req.url} - ${req.ip}`);
       }
-    } else if (duration > 2000) {
-      console.log(`SLOW: ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
     }
   });
   
   next();
 });
 
-// Handle preflight requests explicitly
-app.options('*', cors());
-
 // Body parsing middleware
 app.use(express.json({ 
   limit: '10mb',
   type: ['application/json', 'text/plain']
 }));
+
 app.use(express.urlencoded({ 
   extended: true, 
   limit: '10mb',
   parameterLimit: 1000
 }));
 
-// Cookie parser with secret
+// CRITICAL: Cookie parser with secret
 app.use(cookieParser(env.COOKIE_SECRET));
 
-// NO PASSPORT - JWT ONLY AUTHENTICATION
-console.log('ℹ️ Using JWT-only authentication (Passport disabled for Railway)');
-
-// FIXED: Loop prevention middleware with proper typing
-const loopPreventionMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const clientIP = req.ip || 'unknown';
-  const now = Date.now();
-  const isMeEndpoint = req.path === '/api/auth/me';
-  
-  // Only apply to /me endpoint to prevent auth loops
-  if (!isMeEndpoint) {
-    return next();
-  }
-
-  // Initialize tracking if needed
-  if (!global.clientPatterns) {
-    global.clientPatterns = new Map();
-  }
-
-  let pattern = global.clientPatterns.get(clientIP);
-  
-  if (!pattern) {
-    pattern = {
-      lastRequest: now,
-      requestCount: 1,
-      consecutiveFailures: 0,
-      blocked: false,
-      blockUntil: 0,
-    };
-    global.clientPatterns.set(clientIP, pattern);
-    return next();
-  }
-
-  // Check if client is currently blocked
-  if (pattern.blocked && now < pattern.blockUntil) {
-    logger.warn('Blocked client attempting /me request', {
-      ip: clientIP,
-      endpoint: req.path,
-      blockTimeRemaining: pattern.blockUntil - now,
-      userAgent: req.get('User-Agent'),
-    });
-
-    return res.status(429).json({
-      success: false,
-      message: 'Client temporarily blocked due to excessive /me requests. Please wait before trying again.',
-      code: 'CLIENT_BLOCKED',
-      retryAfter: Math.ceil((pattern.blockUntil - now) / 1000),
-      action: 'stop_requests',
-      hint: 'Check your frontend for infinite loops calling /me endpoint'
-    });
-  }
-
-  // Reset block if time has passed
-  if (pattern.blocked && now >= pattern.blockUntil) {
-    pattern.blocked = false;
-    pattern.blockUntil = 0;
-    pattern.consecutiveFailures = 0;
-    pattern.requestCount = 0;
-    logger.info('Client unblocked', { ip: clientIP });
-  }
-
-  const timeSinceLastRequest = now - pattern.lastRequest;
-  
-  // If requests are too frequent (less than 500ms apart), it's likely a loop
-  if (timeSinceLastRequest < 500) {
-    pattern.requestCount++;
-    
-    // If more than 8 rapid requests, start blocking
-    if (pattern.requestCount > 8) {
-      pattern.blocked = true;
-      pattern.blockUntil = now + (60 * 1000); // Block for 1 minute
-      
-      logger.warn('Client blocked due to rapid /me requests', {
-        ip: clientIP,
-        endpoint: req.path,
-        requestCount: pattern.requestCount,
-        timeSinceLastRequest,
-        userAgent: req.get('User-Agent'),
-      });
-
-      return res.status(429).json({
-        success: false,
-        message: 'Too many rapid /me requests detected. This looks like an infinite loop. Please check your frontend code.',
-        code: 'RAPID_ME_REQUESTS_DETECTED',
-        retryAfter: 60,
-        action: 'check_frontend_loop',
-        hint: 'Make sure your frontend is not automatically retrying failed /me requests in a loop',
-        debug: {
-          requestCount: pattern.requestCount,
-          timeSinceLastRequest,
-          endpoint: req.path,
-        }
-      });
-    }
-  } else if (timeSinceLastRequest > 2000) {
-    // Reset counter if requests are spaced out properly (2+ seconds)
-    pattern.requestCount = 1;
-    pattern.consecutiveFailures = 0;
-  }
-
-  pattern.lastRequest = now;
-  next();
-};
-
-// FIXED: Auth debug headers middleware
+// Auth debug headers middleware
 const authDebugHeaders = (req: Request, res: Response, next: NextFunction) => {
-  // Only for auth endpoints
   if (req.path.startsWith('/api/auth/')) {
     const originalJson = res.json.bind(res);
     
     res.json = function(data: any) {
+      // Add debug headers
       res.setHeader('X-Debug-Endpoint', req.path);
       res.setHeader('X-Debug-Method', req.method);
       res.setHeader('X-Debug-Timestamp', new Date().toISOString());
       res.setHeader('X-Debug-IP', req.ip || 'unknown');
+      res.setHeader('X-Debug-Origin', req.get('Origin') || 'none');
       
       if (res.statusCode >= 400) {
         res.setHeader('X-Debug-Error', 'true');
@@ -366,14 +226,13 @@ const authDebugHeaders = (req: Request, res: Response, next: NextFunction) => {
         if (res.statusCode === 401) {
           res.setHeader('X-Debug-Hint', 'Authentication required - check token validity');
           res.setHeader('X-Clear-Token', 'true');
-        } else if (res.statusCode === 429) {
-          res.setHeader('X-Debug-Hint', 'Rate limit exceeded - slow down requests');
         }
       } else {
         res.setHeader('X-Debug-Success', 'true');
         
-        if (req.path.includes('/login') || req.path.includes('/register')) {
+        if (req.path.includes('/login')) {
           res.setHeader('X-Debug-Auth-Token', 'set');
+          res.setHeader('X-Debug-Cookie-Set', 'true');
         }
       }
       
@@ -384,29 +243,15 @@ const authDebugHeaders = (req: Request, res: Response, next: NextFunction) => {
   next();
 };
 
-// Apply middleware
 app.use(authDebugHeaders);
-app.use(loopPreventionMiddleware);
 
 // Apply auth rate limiting to auth routes only
 app.use('/api/auth', authRateLimiter);
 
-// Static files middleware (for uploads)
-app.use('/uploads', express.static('uploads', {
-  maxAge: '1d',
-  etag: true,
-  lastModified: true,
-  setHeaders: (res, path) => {
-    // Add CORS headers for uploaded files
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  }
-}));
-
 // API Routes
 app.use('/api', routes);
 
-// Root endpoint
+// Root endpoint with enhanced info
 app.get('/', (req: Request, res: Response) => {
   res.json({
     success: true,
@@ -415,13 +260,19 @@ app.get('/', (req: Request, res: Response) => {
     environment: env.NODE_ENV,
     timestamp: new Date().toISOString(),
     uptime: Math.floor(process.uptime()),
+    cors: {
+      enabled: true,
+      credentials: true,
+      allowedOrigins: [
+        'https://newticax.vercel.app',
+        '*.vercel.app',
+        'localhost:*'
+      ]
+    },
     server: {
       platform: process.platform,
       nodeVersion: process.version,
-      memory: {
-        used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
-      }
+      trustProxy: true,
     },
     endpoints: {
       health: '/health',
@@ -433,7 +284,7 @@ app.get('/', (req: Request, res: Response) => {
       auth: 'JWT-only (Passport disabled)',
       antiLoop: 'Active for /me endpoint',
       rateLimiting: 'Active',
-      cors: 'Configured for cross-origin',
+      cors: 'Configured for cross-origin with credentials',
     },
   });
 });
@@ -447,36 +298,30 @@ app.get('/health', async (req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     uptime: Math.floor(process.uptime()),
     environment: env.NODE_ENV,
-    version: process.env.npm_package_version || '1.0.0',
-    node: process.version,
-    platform: process.platform,
-    memory: {
-      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
-      external: Math.round(process.memoryUsage().external / 1024 / 1024),
-      rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    cors: {
+      enabled: true,
+      credentials: true,
+      origin: req.get('Origin') || 'none'
+    },
+    request: {
+      ip: req.ip,
+      userAgent: req.get('User-Agent')?.substring(0, 50),
+      origin: req.get('Origin'),
     },
     services: {
       database: false,
       redis: false,
-      email: false,
-    },
-    loopPrevention: {
-      active: true,
-      trackedClients: global.clientPatterns ? global.clientPatterns.size : 0,
     },
     config: {
       port: env.PORT,
       corsOrigin: env.CORS_ORIGIN,
+      frontendUrl: env.FRONTEND_URL,
       hasJwtSecret: !!env.JWT_SECRET,
       hasCookieSecret: !!env.COOKIE_SECRET,
-      hasDatabaseUrl: !!env.DATABASE_URL,
-      hasNewsApiKey: !!env.NEWS_API_KEY,
-      authMode: 'JWT-only',
+      trustProxy: true,
     },
   };
 
-  // Test database connection
   try {
     await prisma.user.count();
     healthData.services.database = true;
@@ -493,77 +338,7 @@ app.get('/health', async (req: Request, res: Response) => {
   res.status(statusCode).json(healthData);
 });
 
-// API documentation endpoint
-app.get('/api/docs', (req: Request, res: Response) => {
-  res.json({
-    success: true,
-    message: 'NewticaX API Documentation',
-    version: '1.0.0',
-    baseUrl: `${req.protocol}://${req.get('host')}/api`,
-    authentication: 'JWT Bearer Token or Cookie',
-    note: 'OAuth/Social login disabled for Railway deployment',
-    features: {
-      loopPrevention: 'Active - prevents frontend authentication loops on /me endpoint',
-      rateLimiting: 'Active - prevents API abuse',
-      debugging: 'Headers provided for frontend debugging',
-      cors: 'Configured for cross-origin requests with credentials',
-    },
-    endpoints: {
-      auth: {
-        register: 'POST /api/auth/register',
-        login: 'POST /api/auth/login',
-        logout: 'POST /api/auth/logout',
-        me: 'GET /api/auth/me',
-        profile: 'PUT /api/auth/profile',
-        password: 'PUT /api/auth/password',
-        preferences: 'PUT /api/auth/preferences',
-      },
-      articles: {
-        list: 'GET /api/articles',
-        get: 'GET /api/articles/:slug',
-        create: 'POST /api/articles',
-        trending: 'GET /api/articles/trending',
-        breaking: 'GET /api/articles/breaking',
-        search: 'GET /api/articles/search',
-      },
-      admin: {
-        dashboard: 'GET /api/admin/dashboard',
-        users: 'GET /api/admin/users',
-        categories: 'GET /api/admin/categories',
-      }
-    },
-    troubleshooting: {
-      authLoops: 'If experiencing auth loops, check X-Debug-* headers in responses',
-      rateLimits: 'Rate limits return specific error codes and retry times',
-      debugging: 'Enable browser dev tools to see all response headers',
-      cors: 'Ensure frontend is configured for withCredentials: true',
-    },
-  });
-});
-
-// Debug endpoint for monitoring loops and performance
-app.get('/api/debug/status', (req: Request, res: Response) => {
-  const stats = {
-    trackedClients: global.clientPatterns ? global.clientPatterns.size : 0,
-    blockedClients: global.clientPatterns ? 
-      Array.from(global.clientPatterns.values()).filter((p: any) => p.blocked).length : 0,
-    timestamp: new Date().toISOString(),
-    uptime: Math.floor(process.uptime()),
-    memory: {
-      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
-    },
-    environment: env.NODE_ENV,
-    version: process.env.npm_package_version || '1.0.0',
-  };
-  
-  res.json({
-    success: true,
-    data: stats,
-  });
-});
-
-// 404 handler for all other routes
+// 404 handler
 app.use('*', (req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.originalUrl}`);
   
@@ -580,31 +355,6 @@ app.use('*', (req: Request, res: Response) => {
 // Global error handler middleware
 app.use(errorHandler);
 
-// Graceful shutdown handling
-const gracefulShutdown = async (signal: string) => {
-  console.log(`Received ${signal}, shutting down gracefully...`);
-  
-  try {
-    await prisma.$disconnect();
-    console.log('Database connections closed');
-    console.log('Graceful shutdown completed');
-    process.exit(0);
-  } catch (error) {
-    console.error('Error during shutdown:', error);
-    process.exit(1);
-  }
-};
-
-// Handle shutdown signals
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
-
 // Connect to database and start server
 const startServer = async () => {
   try {
@@ -612,57 +362,40 @@ const startServer = async () => {
     console.log('📊 Environment Info:', {
       NODE_ENV: env.NODE_ENV,
       PORT: env.PORT,
-      DATABASE_URL: env.DATABASE_URL ? '✅ Set' : '❌ Missing',
-      JWT_SECRET: env.JWT_SECRET ? '✅ Set' : '❌ Missing',
-      COOKIE_SECRET: env.COOKIE_SECRET ? '✅ Set' : '❌ Missing',
+      FRONTEND_URL: env.FRONTEND_URL,
       CORS_ORIGIN: env.CORS_ORIGIN,
-      LOOP_PREVENTION: '✅ Active',
-      RATE_LIMITING: '✅ Active',
+      TRUST_PROXY: 'true',
     });
 
-    // Connect to database
-    console.log('🔌 Connecting to database...');
     await connectDB();
     console.log('✅ Database connected successfully');
     
-    // Initialize admin user if not exists
-    console.log('👤 Initializing admin user...');
     await initializeAdmin();
     console.log('✅ Admin user initialized');
     
-    // Start the NewsAPI fetcher for background updates (optional)
     if (env.NEWS_API_KEY) {
       try {
-        console.log('📰 Starting NewsAPI fetcher...');
         startNewsAPIFetcher();
         console.log('✅ NewsAPI fetcher started');
       } catch (error) {
-        console.warn('⚠️ Failed to start NewsAPI fetcher (continuing without it):', error);
+        console.warn('⚠️ Failed to start NewsAPI fetcher:', error);
       }
-    } else {
-      console.log('ℹ️ NEWS_API_KEY not found, NewsAPI fetcher not started');
     }
 
-    // Start server
     const PORT = env.PORT || 4000;
-    console.log(`🌐 Starting server on port ${PORT}...`);
     
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Server running on port ${PORT} in ${env.NODE_ENV} mode`);
       console.log(`🌐 Server URL: http://0.0.0.0:${PORT}`);
-      console.log(`📋 Health check: http://0.0.0.0:${PORT}/health`);
-      console.log(`📚 API docs: http://0.0.0.0:${PORT}/api/docs`);
-      console.log(`🔐 Auth mode: JWT-only (no Passport)`);
-      console.log(`🛡️ Loop prevention: Active for /me endpoint`);
-      console.log(`🚦 Rate limiting: Active`);
-      console.log(`🌍 CORS: Configured for cross-origin`);
+      console.log(`🔗 Frontend URL: ${env.FRONTEND_URL}`);
+      console.log(`🍪 Cookies: Enabled with credentials support`);
+      console.log(`🌍 CORS: Enabled for ${env.CORS_ORIGIN}`);
       console.log(`🎯 Ready to handle requests!`);
     });
 
-    // Set server timeout
-    server.timeout = 30000; // 30 seconds
-    server.keepAliveTimeout = 65000; // 65 seconds
-    server.headersTimeout = 66000; // 66 seconds
+    server.timeout = 30000;
+    server.keepAliveTimeout = 65000;
+    server.headersTimeout = 66000;
 
     return server;
 
@@ -672,7 +405,6 @@ const startServer = async () => {
   }
 };
 
-// Start the server
 startServer().catch((error) => {
   console.error('Failed to start server:', error);
   process.exit(1);
