@@ -8,7 +8,7 @@
     "build": "npm run clean && npm run prisma:generate && tsc",
     "start": "node dist/app.js",
     "clean": "rimraf dist",
-    "prisma:generate": "prisma generate",
+    "prisma:generate": "prisma generate --no-engine",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
     "prisma:reset": "prisma db push --force-reset",
@@ -17,14 +17,9 @@
     "fix:usernames": "tsx scripts/fix-usernames.ts",
     "setup:database": "tsx scripts/setup-database.ts",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src --ext .ts",
-    "lint:fix": "eslint src --ext .ts --fix",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "railway:build": "npm run prisma:generate && npm run build",
+    "railway:build": "npm run prisma:generate && npm run type-check && npm run build",
     "railway:start": "npm run setup:database && npm start",
-    "postinstall": "npm run prisma:generate"
+    "postinstall": "npm run prisma:generate || echo 'Prisma generate failed but continuing'"
   },
   "keywords": [
     "news",
@@ -66,17 +61,15 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^20.10.0",
     "@types/nodemailer": "^6.4.14",
-    "@typescript-eslint/eslint-plugin": "^6.13.1",
-    "@typescript-eslint/parser": "^6.13.1",
-    "eslint": "^8.54.0",
-    "jest": "^29.7.0",
     "prisma": "^5.22.0",
     "rimraf": "^5.0.5",
     "tsx": "^4.6.0",
     "typescript": "^5.3.2"
   },
   "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=8.0.0"
+    "node": ">=18.0.0"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
   }
 }

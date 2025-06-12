@@ -4,6 +4,7 @@
 generator client {
   provider = "prisma-client-js"
   output   = "../node_modules/.prisma/client"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
   previewFeatures = []
 }
 
@@ -12,7 +13,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ENUMS MUST BE DEFINED BEFORE MODELS THAT USE THEM
+// Rest of your schema remains the same...
 enum Role {
   USER
   AUTHOR
@@ -30,23 +31,21 @@ enum Language {
   INDONESIAN
 }
 
-// Model User with all required fields properly defined
 model User {
   id             String        @id @default(auto()) @map("_id") @db.ObjectId
   name           String
-  username       String        @unique // FIXED: Removed optional to ensure it's always set
+  username       String        @unique
   email          String        @unique
-  password       String?       // Optional for social logins
+  password       String?
   image          String?
   bio            String?
   role           Role          @default(USER)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
-  provider       Provider      @default(EMAIL) // FIXED: Added default
+  provider       Provider      @default(EMAIL)
   providerId     String?
   language       Language      @default(ENGLISH)
   
-  // Relations
   articles       Article[]
   bookmarks      Bookmark[]
   likes          Like[]
@@ -56,6 +55,7 @@ model User {
   preference     Preference?
 }
 
+// Continue with all other models as before...
 model Preference {
   id             String   @id @default(auto()) @map("_id") @db.ObjectId
   userId         String   @unique @db.ObjectId
@@ -170,20 +170,20 @@ model ReadHistory {
 
 model Notification {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  type        String   // Type of notification: comment, like, system, etc.
+  type        String
   message     String
   read        Boolean  @default(false)
   userId      String   @db.ObjectId
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  relatedId   String?  // ID of related entity (article, comment, etc.)
+  relatedId   String?
   createdAt   DateTime @default(now())
 }
 
 model NewsApiCache {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  endpoint  String   // NewsAPI endpoint
-  params    String   // Stringified JSON of params
-  data      String   // Cached response
+  endpoint  String
+  params    String
+  data      String
   language  Language @default(ENGLISH)
   expiresAt DateTime
   createdAt DateTime @default(now())
