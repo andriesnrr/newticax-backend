@@ -5,33 +5,18 @@
   "main": "dist/app.js",
   "scripts": {
     "dev": "tsx watch src/app.ts",
-    "build": "npm run clean && npm run prisma:generate && tsc",
+    "build": "pnpm run clean && pnpm run prisma:generate && pnpm run compile",
+    "compile": "tsc",
     "start": "node dist/app.js",
     "clean": "rimraf dist",
-    "prisma:generate": "prisma generate --no-engine",
+    "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "prisma:studio": "prisma studio",
-    "prisma:reset": "prisma db push --force-reset",
-    "db:seed": "tsx scripts/seed.ts",
-    "fix:admin": "tsx scripts/fix-admin-username.ts",
-    "fix:usernames": "tsx scripts/fix-usernames.ts",
-    "setup:database": "tsx scripts/setup-database.ts",
     "type-check": "tsc --noEmit",
-    "railway:build": "npm run prisma:generate && npm run type-check && npm run build",
-    "railway:start": "npm run setup:database && npm start",
-    "postinstall": "npm run prisma:generate || echo 'Prisma generate failed but continuing'"
+    "railway:start": "pnpm run setup:database && pnpm start",
+    "setup:database": "tsx scripts/setup-database.ts",
+    "fix:admin": "tsx scripts/fix-admin-username.ts",
+    "postinstall": "prisma generate"
   },
-  "keywords": [
-    "news",
-    "api",
-    "nodejs",
-    "typescript",
-    "prisma",
-    "mongodb",
-    "railway"
-  ],
-  "author": "NewticaX Team",
-  "license": "MIT",
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "axios": "^1.6.2",
@@ -68,8 +53,5 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "prisma": {
-    "schema": "prisma/schema.prisma"
   }
 }

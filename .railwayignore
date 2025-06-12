@@ -1,0 +1,13 @@
+# .railwayignore
+node_modules
+.git
+.env.local
+.env.development
+dist
+*.log
+.DS_Store
+coverage
+.nyc_output
+.cache
+.vscode
+.idea

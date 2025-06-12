@@ -1,4 +1,3 @@
-// Enhanced fix-admin-username.ts for Railway deployment
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { config } from 'dotenv';
