@@ -1,6 +1,6 @@
-// ===== scripts/fix-admin-username.ts - Fix Admin Username Issue =====
-
+// Enhanced fix-admin-username.ts for Railway deployment
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 import { config } from 'dotenv';
 
 // Load environment variables
@@ -9,60 +9,104 @@ config();
 const prisma = new PrismaClient();
 
 async function fixAdminUsername() {
-  console.log('🔧 Starting admin username fix...');
+  console.log('🔧 Starting comprehensive admin fix...');
 
   try {
-    // Find admin user with null username
-    const adminUser = await prisma.user.findFirst({
-      where: {
-        role: 'ADMIN',
-        OR: [
-          { username: null },
-          { username: '' },
-        ],
+    // Step 1: Check for any admin users
+    const allAdmins = await prisma.user.findMany({
+      where: { role: 'ADMIN' },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        username: true,
+        role: true,
+        password: true,
       },
     });
 
-    if (!adminUser) {
-      console.log('✅ No admin user with null username found');
-      return;
+    console.log(`Found ${allAdmins.length} admin user(s):`, allAdmins.map(a => ({
+      id: a.id,
+      email: a.email,
+      username: a.username,
+      hasPassword: !!a.password,
+    })));
+
+    // Step 2: Fix existing admins with null username
+    for (const admin of allAdmins) {
+      if (!admin.username) {
+        console.log(`Fixing admin ${admin.email} with null username...`);
+        
+        const newUsername = process.env.ADMIN_USERNAME || `admin${Date.now()}`;
+        
+        try {
+          const updatedAdmin = await prisma.user.update({
+            where: { id: admin.id },
+            data: { username: newUsername },
+          });
+          
+          console.log(`✅ Fixed admin username:`, {
+            id: updatedAdmin.id,
+            email: updatedAdmin.email,
+            username: updatedAdmin.username,
+          });
+        } catch (updateError) {
+          console.error(`❌ Failed to update admin ${admin.email}:`, updateError);
+        }
+      }
     }
 
-    console.log(`Found admin user with null username:`, {
-      id: adminUser.id,
-      email: adminUser.email,
-      name: adminUser.name,
-      username: adminUser.username,
-    });
+    // Step 3: Create default admin if none exists
+    if (allAdmins.length === 0) {
+      console.log('🔨 No admin users found, creating default admin...');
+      
+      const adminEmail = process.env.ADMIN_EMAIL || 'admin@newticax.com';
+      const adminUsername = process.env.ADMIN_USERNAME || 'superadmin';
+      const adminPassword = process.env.ADMIN_PASSWORD || 'AdminSecureP@ssw0rd!';
+      const adminName = 'Super Admin NewticaX';
 
-    // Set username to environment variable or default
-    const newUsername = process.env.ADMIN_USERNAME || 'superadmin';
+      // Hash password
+      const salt = await bcrypt.genSalt(12);
+      const hashedPassword = await bcrypt.hash(adminPassword, salt);
 
-    // Check if username is already taken
-    const existingUser = await prisma.user.findUnique({
-      where: { username: newUsername },
-    });
+      try {
+        const newAdmin = await prisma.user.create({
+          data: {
+            name: adminName,
+            email: adminEmail,
+            username: adminUsername,
+            password: hashedPassword,
+            role: 'ADMIN',
+            language: 'ENGLISH',
+            provider: 'EMAIL',
+            bio: 'System Administrator',
+          },
+        });
 
-    let finalUsername = newUsername;
-    if (existingUser && existingUser.id !== adminUser.id) {
-      finalUsername = `${newUsername}-admin`;
-      console.log(`Username ${newUsername} is taken, using ${finalUsername}`);
+        // Create preference for new admin
+        await prisma.preference.create({
+          data: {
+            userId: newAdmin.id,
+            categories: [],
+            notifications: true,
+            darkMode: false,
+            emailUpdates: true,
+          },
+        });
+
+        console.log(`✅ Created new admin user:`, {
+          id: newAdmin.id,
+          email: newAdmin.email,
+          username: newAdmin.username,
+          role: newAdmin.role,
+        });
+      } catch (createError) {
+        console.error('❌ Failed to create admin user:', createError);
+      }
     }
 
-    // Update admin user with username
-    const updatedUser = await prisma.user.update({
-      where: { id: adminUser.id },
-      data: { username: finalUsername },
-    });
+    console.log('✅ Admin username fix completed successfully');
 
-    console.log(`✅ Updated admin user:`, {
-      id: updatedUser.id,
-      email: updatedUser.email,
-      username: updatedUser.username,
-      role: updatedUser.role,
-    });
-
-    console.log('✅ Admin username fix completed');
   } catch (error) {
     console.error('❌ Admin username fix failed:', error);
     throw error;
@@ -71,13 +115,13 @@ async function fixAdminUsername() {
   }
 }
 
-// Run fix
+// Run the fix
 fixAdminUsername()
   .then(() => {
-    console.log('🎉 Admin username fix successful');
+    console.log('🎉 Admin fix successful');
     process.exit(0);
   })
   .catch((error) => {
-    console.error('💥 Admin username fix failed:', error);
+    console.error('💥 Admin fix failed:', error);
     process.exit(1);
   });

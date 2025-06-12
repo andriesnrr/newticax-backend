@@ -4,6 +4,7 @@
 generator client {
   provider = "prisma-client-js"
   output   = "../node_modules/.prisma/client"
+  previewFeatures = []
 }
 
 datasource db {
@@ -11,31 +12,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Model User: Tipe 'User' akan digenerate dari model ini.
-model User {
-  id             String        @id @default(auto()) @map("_id") @db.ObjectId
-  name           String
-  username       String?       @unique // Optional dengan unique constraint
-  email          String        @unique
-  password       String?       // Optional for social logins
-  image          String?
-  bio            String?
-  role           Role          @default(USER) // Menggunakan enum Role
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  provider       Provider?     // Menggunakan enum Provider
-  providerId     String?
-  language       Language      @default(ENGLISH) // Menggunakan enum Language
-  articles       Article[]
-  bookmarks      Bookmark[]
-  likes          Like[]
-  comments       Comment[]
-  notifications  Notification[]
-  readingHistory ReadHistory[]
-  preference     Preference?
-}
-
-// Enum Role: Tipe 'Role' akan digenerate dari enum ini.
+// ENUMS MUST BE DEFINED BEFORE MODELS THAT USE THEM
 enum Role {
   USER
   AUTHOR
@@ -48,17 +25,42 @@ enum Provider {
   GITHUB
 }
 
-// Enum Language: Tipe 'Language' akan digenerate dari enum ini.
 enum Language {
   ENGLISH
   INDONESIAN
+}
+
+// Model User with all required fields properly defined
+model User {
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  name           String
+  username       String        @unique // FIXED: Removed optional to ensure it's always set
+  email          String        @unique
+  password       String?       // Optional for social logins
+  image          String?
+  bio            String?
+  role           Role          @default(USER)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  provider       Provider      @default(EMAIL) // FIXED: Added default
+  providerId     String?
+  language       Language      @default(ENGLISH)
+  
+  // Relations
+  articles       Article[]
+  bookmarks      Bookmark[]
+  likes          Like[]
+  comments       Comment[]
+  notifications  Notification[]
+  readingHistory ReadHistory[]
+  preference     Preference?
 }
 
 model Preference {
   id             String   @id @default(auto()) @map("_id") @db.ObjectId
   userId         String   @unique @db.ObjectId
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  categories     String[] // Menyimpan ID atau slug kategori sebagai string
+  categories     String[] @default([])
   notifications  Boolean  @default(true)
   darkMode       Boolean  @default(false)
   emailUpdates   Boolean  @default(true)
@@ -99,12 +101,12 @@ model Article {
   categoryId    String?     @db.ObjectId
   category      Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   tags          Tag[]       @relation(fields: [tagIds], references: [id])
-  tagIds        String[]    @db.ObjectId
+  tagIds        String[]    @db.ObjectId @default([])
   likes         Like[]
   comments      Comment[]
   bookmarks     Bookmark[]
   readHistory   ReadHistory[]
-  language      Language    @default(ENGLISH) // Menggunakan enum Language
+  language      Language    @default(ENGLISH)
   viewCount     Int         @default(0)
   shareCount    Int         @default(0)
 }
@@ -114,23 +116,23 @@ model Tag {
   name       String    @unique
   slug       String    @unique
   articles   Article[] @relation(fields: [articleIds], references: [id])
-  articleIds String[]  @db.ObjectId
+  articleIds String[]  @db.ObjectId @default([])
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 }
 
 model Comment {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
   content   String
-  articleId String   @db.ObjectId
-  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  userId    String   @db.ObjectId
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parentId  String?  @db.ObjectId
-  parent    Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  articleId String    @db.ObjectId
+  article   Article   @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  userId    String    @db.ObjectId
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentId  String?   @db.ObjectId
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   replies   Comment[] @relation("CommentReplies")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 model Like {
@@ -182,7 +184,7 @@ model NewsApiCache {
   endpoint  String   // NewsAPI endpoint
   params    String   // Stringified JSON of params
   data      String   // Cached response
-  language  Language @default(ENGLISH) // Menggunakan enum Language
+  language  Language @default(ENGLISH)
   expiresAt DateTime
   createdAt DateTime @default(now())
 
