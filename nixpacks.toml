@@ -1,4 +1,4 @@
-# nixpacks.toml - Railway configuration
+# nixpacks.toml - Railway configuration (FIXED)
 [phases.setup]
 nixPkgs = ["nodejs_22", "openssl"]
 
