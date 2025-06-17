@@ -3,19 +3,42 @@
   "version": "1.0.0",
   "description": "NewticaX Backend API for Railway Deployment",
   "main": "dist/app.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "scripts": {
     "dev": "tsx watch src/app.ts",
-    "build": "pnpm run clean && pnpm run prisma:generate && pnpm run compile",
+    "dev:pnpm": "pnpm exec tsx watch src/app.ts",
+    
+    "build": "npm run clean && npm run prisma:generate && npm run compile",
+    "build:pnpm": "pnpm run clean && pnpm run prisma:generate && pnpm run compile",
+    
     "compile": "tsc",
-    "start": "pnpm run railway:start",
     "clean": "rimraf dist",
+    
+    "start": "node dist/app.js",
+    "start:dev": "npm run build && npm start",
+    
+    "railway:start": "npm run setup:database && node dist/app.js",
+    "railway:build": "npm run clean && npm run prisma:generate && npm run compile",
+    
+    "setup:database": "node dist/scripts/setup-database.js",
+    "setup:database:dev": "tsx scripts/setup-database.ts",
+    
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "type-check": "tsc --noEmit",
-    "railway:start": "pnpm run setup:database && node dist/app.js",
-    "setup:database": "tsx scripts/setup-database.ts",
+    "prisma:studio": "prisma studio",
+    "prisma:migrate": "prisma migrate dev",
+    
     "fix:admin": "tsx scripts/fix-admin-username.ts",
-    "postinstall": "prisma generate"
+    "fix:admin:prod": "node dist/scripts/fix-admin-username.js",
+    
+    "type-check": "tsc --noEmit",
+    "lint": "echo \"Linting not configured\"",
+    
+    "postinstall": "npm run prisma:generate"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -51,7 +74,19 @@
     "tsx": "^4.6.0",
     "typescript": "^5.3.2"
   },
-  "engines": {
-    "node": ">=18.0.0"
+  "keywords": [
+    "nodejs",
+    "typescript",
+    "express",
+    "prisma",
+    "mongodb",
+    "news-api",
+    "railway"
+  ],
+  "author": "NewticaX Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andriesnrr/newticax-backend"
   }
 }
