@@ -2,11 +2,14 @@
 nixPkgs = ["nodejs_22", "openssl"]
 
 [phases.install]
-cmds = ["npm ci --production=false"]
+cmds = [
+  "npm ci --production=false --no-audit --no-fund",
+  "npm prune --production"
+]
 
 [phases.build] 
 cmds = [
-  "npx prisma generate",
+  "npx prisma generate --no-engine",
   "npm run compile"
 ]
 
@@ -15,3 +18,4 @@ cmd = "npm run railway:start"
 
 [variables]
 NODE_ENV = "production"
+NPM_CONFIG_PRODUCTION = "false"
