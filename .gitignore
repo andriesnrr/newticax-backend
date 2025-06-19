@@ -71,10 +71,8 @@ prisma/migrations/
 *.backup
 *.bak
 
-# Lock files (choose one)
-package-lock.json
+# Lock files - KEEP package-lock.json for Railway
 # yarn.lock
 
-# Lock files - keep both for dual support
-# pnpm-lock.yaml (for development)
-# package-lock.json (for Railway deployment)
+# Remove the package-lock.json line if it exists
+# DON'T IGNORE package-lock.json for Railway deployment
