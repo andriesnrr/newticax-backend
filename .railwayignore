@@ -11,3 +11,15 @@ coverage
 .cache
 .vscode
 .idea
+
+# Force npm usage by ignoring pnpm files
+pnpm-lock.yaml
+.pnpm-debug.log
+.pnpm-store/
+
+# Ignore yarn files too
+yarn.lock
+.yarn/
+
+# Only use package-lock.json for Railway
+!package-lock.json
