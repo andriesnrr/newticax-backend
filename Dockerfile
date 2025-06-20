@@ -6,17 +6,14 @@ RUN apk add --no-cache python3 make g++ openssl
 
 WORKDIR /app
 
-# Copy package files first
-COPY package*.json ./
+# Copy package.json only (not lock file to avoid sync issues)
+COPY package.json ./
 
-# Install TypeScript globally first to ensure it's available
-RUN npm install -g typescript@^5.3.2
+# Generate fresh package-lock.json
+RUN npm install --package-lock-only
 
 # Install dependencies with dev dependencies
 RUN npm ci --include=dev --no-audit --no-fund
-
-# Verify installations
-RUN tsc --version && npx tsc --version
 
 # Copy ALL source files
 COPY . .
@@ -24,8 +21,8 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate --no-engine
 
-# Build TypeScript
-RUN rm -rf dist && tsc
+# Build using npm script
+RUN npm run compile
 
 # Verify build output
 RUN ls -la dist/ && test -f dist/app.js
