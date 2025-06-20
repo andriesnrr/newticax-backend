@@ -1,57 +1,25 @@
-# Build stage
-FROM node:22-alpine AS builder
+# Use Node.js 22
+FROM node:22-alpine
 
 # Install system dependencies
 RUN apk add --no-cache python3 make g++ openssl
 
 WORKDIR /app
 
-# Copy package files AND prisma schema first
-COPY package*.json ./
-COPY prisma ./prisma/
-
-# Install ALL dependencies (including dev dependencies)
-RUN npm ci --include=dev --no-audit --no-fund
-
-# Copy all source code
+# Copy ALL files first
 COPY . .
 
-# Clean any existing dist
-RUN rm -rf dist
+# Install dependencies with dev dependencies
+RUN npm ci --include=dev --no-audit --no-fund
 
-# Generate Prisma client again (just to be sure)
+# Generate Prisma client
 RUN npx prisma generate --no-engine
 
 # Build TypeScript
-RUN npx tsc
+RUN rm -rf dist && npx tsc
 
-# Verify build succeeded
-RUN test -f dist/app.js || (echo "Build failed - dist/app.js not found" && exit 1)
-
-# Production stage
-FROM node:22-alpine AS production
-
-# Install runtime dependencies
-RUN apk add --no-cache openssl
-
-WORKDIR /app
-
-# Copy package files AND prisma schema first
-COPY package*.json ./
-COPY prisma ./prisma/
-
-# Temporarily disable postinstall
-RUN npm pkg set scripts.postinstall="echo 'Skipping postinstall in production stage'"
-
-# Install only production dependencies
-RUN npm ci --omit=dev --no-audit --no-fund
-
-# Copy built application and generated Prisma client from builder stage
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-
-# Restore original postinstall (though it won't run in production)
-RUN npm pkg set scripts.postinstall="npx prisma generate --no-engine"
+# Remove dev dependencies to reduce image size
+RUN npm prune --production
 
 # Create required directories
 RUN mkdir -p logs uploads
