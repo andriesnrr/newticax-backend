@@ -6,17 +6,29 @@ RUN apk add --no-cache python3 make g++ openssl
 
 WORKDIR /app
 
-# Copy ALL files first
-COPY . .
+# Copy package files first
+COPY package*.json ./
+
+# Install TypeScript globally first to ensure it's available
+RUN npm install -g typescript@^5.3.2
 
 # Install dependencies with dev dependencies
 RUN npm ci --include=dev --no-audit --no-fund
+
+# Verify installations
+RUN tsc --version && npx tsc --version
+
+# Copy ALL source files
+COPY . .
 
 # Generate Prisma client
 RUN npx prisma generate --no-engine
 
 # Build TypeScript
-RUN rm -rf dist && npx tsc
+RUN rm -rf dist && tsc
+
+# Verify build output
+RUN ls -la dist/ && test -f dist/app.js
 
 # Remove dev dependencies to reduce image size
 RUN npm prune --production

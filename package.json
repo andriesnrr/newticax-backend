@@ -1,32 +1,90 @@
 {
+  "name": "newticax-backend",
+  "version": "1.0.0",
+  "description": "NewticaX Backend API for Railway Deployment",
+  "main": "dist/app.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "scripts": {
     "dev": "tsx watch src/app.ts",
+    
     "build": "npm run clean && npm run prisma:generate && npm run compile",
     "build:railway": "npm run clean && npx prisma generate --no-engine && npm run compile",
+    
     "compile": "npx tsc",
     "compile:check": "npx tsc --noEmit",
-    "clean": "rimraf dist",
+    "clean": "rm -rf dist",
+    
     "start": "node dist/app.js",
     "start:dev": "npm run build && npm start",
+    
     "railway:start": "npm run setup:database && node dist/app.js",
     "railway:build": "npm run build:railway",
+    
     "setup:database": "node dist/scripts/setup-database.js",
     "setup:database:dev": "tsx scripts/setup-database.ts",
+    
     "prisma:generate": "npx prisma generate --no-engine",
     "prisma:push": "npx prisma db push",
     "prisma:studio": "npx prisma studio",
     "prisma:migrate": "npx prisma migrate dev",
+    
     "fix:admin": "tsx scripts/fix-admin-username.ts",
     "fix:admin:prod": "node dist/scripts/fix-admin-username.js",
+    
     "type-check": "npx tsc --noEmit",
-    "lint": "echo \"Linting not configured\"",
-    "postinstall": "npx prisma generate --no-engine"
-  },
-  "packageManager": "npm@10.0.0",
-  "devDependencies": {
-    "prisma": "^6.10.1"
+    "lint": "echo \"Linting not configured\""
   },
   "dependencies": {
-    "@prisma/client": "^6.10.1"
-  }
+    "@prisma/client": "^5.22.0",
+    "axios": "^1.6.2",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.3.2",
+    "jsonwebtoken": "^9.0.2",
+    "lodash": "^4.17.21",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.9.7",
+    "slugify": "^1.6.6",
+    "winston": "^3.11.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/lodash": "^4.14.202",
+    "@types/multer": "^1.4.11",
+    "@types/node": "^20.10.0",
+    "@types/nodemailer": "^6.4.14",
+    "prisma": "^5.22.0",
+    "tsx": "^4.6.0",
+    "typescript": "^5.3.2"
+  },
+  "keywords": [
+    "nodejs",
+    "typescript",
+    "express",
+    "prisma",
+    "mongodb",
+    "news-api",
+    "railway"
+  ],
+  "author": "NewticaX Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andriesnrr/newticax-backend"
+  },
+  "packageManager": "npm@10.0.0"
 }
