@@ -6,19 +6,20 @@ RUN apk add --no-cache python3 make g++ openssl
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files AND prisma schema first
 COPY package*.json ./
+COPY prisma ./prisma/
 
 # Install ALL dependencies (including dev dependencies)
 RUN npm ci --include=dev --no-audit --no-fund
 
-# Copy source code
+# Copy all source code
 COPY . .
 
 # Clean any existing dist
 RUN rm -rf dist
 
-# Generate Prisma client
+# Generate Prisma client again (just to be sure)
 RUN npx prisma generate --no-engine
 
 # Build TypeScript
@@ -35,8 +36,12 @@ RUN apk add --no-cache openssl
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files AND prisma schema first
 COPY package*.json ./
+COPY prisma ./prisma/
+
+# Temporarily disable postinstall
+RUN npm pkg set scripts.postinstall="echo 'Skipping postinstall in production stage'"
 
 # Install only production dependencies
 RUN npm ci --omit=dev --no-audit --no-fund
@@ -44,7 +49,9 @@ RUN npm ci --omit=dev --no-audit --no-fund
 # Copy built application and generated Prisma client from builder stage
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/prisma ./prisma
+
+# Restore original postinstall (though it won't run in production)
+RUN npm pkg set scripts.postinstall="npx prisma generate --no-engine"
 
 # Create required directories
 RUN mkdir -p logs uploads
