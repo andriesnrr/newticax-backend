@@ -16,13 +16,15 @@
     
     "compile": "npx tsc",
     "compile:check": "npx tsc --noEmit",
-    "clean": "rm -rf dist",
+    "clean": "rimraf dist",
+    "clean:windows": "if exist dist rmdir /s /q dist",
+    "clean:unix": "rm -rf dist",
     
     "start": "node dist/app.js",
     "start:dev": "npm run build && npm start",
     
     "railway:start": "npm run setup:database && node dist/app.js",
-    "railway:build": "npm run build:railway",
+    "railway:build": "npm run clean:unix && npx prisma generate --no-engine && npm run compile",
     
     "setup:database": "node dist/scripts/setup-database.js",
     "setup:database:dev": "tsx scripts/setup-database.ts",
@@ -68,6 +70,7 @@
     "@types/node": "^20.19.1",
     "@types/nodemailer": "^6.4.17",
     "prisma": "^6.10.1",
+    "rimraf": "^5.0.5",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
   },
