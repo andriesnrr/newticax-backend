@@ -1,35 +1,32 @@
 {
   "scripts": {
     "dev": "tsx watch src/app.ts",
-    
     "build": "npm run clean && npm run prisma:generate && npm run compile",
     "build:railway": "npm run clean && npx prisma generate --no-engine && npm run compile",
-    
     "compile": "npx tsc",
     "compile:check": "npx tsc --noEmit",
     "clean": "rimraf dist",
-    
     "start": "node dist/app.js",
     "start:dev": "npm run build && npm start",
-    
     "railway:start": "npm run setup:database && node dist/app.js",
     "railway:build": "npm run build:railway",
-    
     "setup:database": "node dist/scripts/setup-database.js",
     "setup:database:dev": "tsx scripts/setup-database.ts",
-    
     "prisma:generate": "npx prisma generate --no-engine",
     "prisma:push": "npx prisma db push",
     "prisma:studio": "npx prisma studio",
     "prisma:migrate": "npx prisma migrate dev",
-    
     "fix:admin": "tsx scripts/fix-admin-username.ts",
     "fix:admin:prod": "node dist/scripts/fix-admin-username.js",
-    
     "type-check": "npx tsc --noEmit",
     "lint": "echo \"Linting not configured\"",
-    
     "postinstall": "npx prisma generate --no-engine"
   },
-  "packageManager": "npm@10.0.0"
+  "packageManager": "npm@10.0.0",
+  "devDependencies": {
+    "prisma": "^6.10.1"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.10.1"
+  }
 }
