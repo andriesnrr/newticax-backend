@@ -4,7 +4,7 @@
     "module": "commonjs",
     "lib": ["ES2022"],
     "outDir": "./dist",
-    "rootDir": "./",
+    "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -17,7 +17,8 @@
     "declaration": false,
     "removeComments": true,
     "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "moduleResolution": "node"
   },
   "include": [
     "src/**/*"
@@ -25,7 +26,7 @@
   "exclude": [
     "node_modules",
     "dist",
-    "scripts",
+    "scripts/**/*",
     "**/*.test.ts",
     "**/*.spec.ts"
   ],

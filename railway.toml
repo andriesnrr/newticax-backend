@@ -2,15 +2,11 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "npm run railway:start"
+startCommand = "npm run build && npm run setup:database && npm start"
 healthcheckPath = "/health"
-healthcheckTimeout = 120
+healthcheckTimeout = 180
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
-[networking]
-externalPort = 4000
-
-[scaling]
-maxReplicas = 1
-minReplicas = 1
+[env]
+NODE_ENV = "production"
