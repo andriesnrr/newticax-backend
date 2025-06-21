@@ -146,12 +146,12 @@ export const getArticleBySlugHandler = async (
     const cacheKey = `article:${sanitizedSlug}`;
     const cachedArticle = await getCachedData(cacheKey);
 
-    let article;
+    let article: any;
     if (cachedArticle) {
       article = cachedArticle;
     } else {
       // Get article with related data
-      article = await prisma.article.findUnique({
+      const foundArticle = await prisma.article.findUnique({
         where: {
           slug: sanitizedSlug,
           published: true,
@@ -190,9 +190,12 @@ export const getArticleBySlugHandler = async (
         },
       });
 
-      if (!article) {
+      if (!foundArticle) {
         throw new AppError("Article not found", 404);
       }
+
+      // FIXED: Create enhanced article object instead of direct assignment
+      article = { ...foundArticle };
 
       // Jika artikel eksternal dan kontennya terpotong,
       // berikan informasi tambahan untuk frontend
@@ -203,8 +206,12 @@ export const getArticleBySlugHandler = async (
           article.content?.includes("[+") || article.summary?.includes("[+");
 
         if (isContentShort || hasContentIndicator) {
-          article.hasFullContentAtSource = true;
-          article.isContentTruncated = true;
+          // FIXED: Create new object with additional properties
+          article = {
+            ...article,
+            hasFullContentAtSource: true,
+            isContentTruncated: true,
+          };
         }
       }
 
