@@ -8,7 +8,7 @@
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
   },
-"scripts": {
+ "scripts": {
     "dev": "tsx watch src/app.ts",
     
     "build": "npm run clean && npm run prisma:generate && npm run compile",
@@ -20,10 +20,10 @@
     "clean:windows": "if exist dist rmdir /s /q dist",
     "clean:unix": "rm -rf dist",
     
-    "start": "node dist/app.js",
+    "start": "node dist/src/app.js",
     "start:dev": "npm run build && npm start",
     
-    "railway:start": "npm run setup:database && node dist/app.js",
+    "railway:start": "npm run setup:database && node dist/src/app.js",
     "railway:build": "npm run clean:unix && npx prisma generate --no-engine && npm run compile",
     
     "setup:database": "node dist/scripts/setup-database.js",

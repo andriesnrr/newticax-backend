@@ -40,7 +40,7 @@ RUN npx prisma generate --no-engine
 RUN npm run compile
 
 # Verify build output - Check correct path
-RUN ls -la dist/ && test -f dist/src/app.js
+RUN ls -la dist/ && test -f dist/app.js
 
 # Remove dev dependencies to reduce image size
 RUN npm prune --production
@@ -60,4 +60,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD node -e "require('http').get('http://localhost:4000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"
 
 # Start the application - Use correct path
-CMD ["node", "dist/src/app.js"]
+CMD ["node", "dist/app.js"]
