@@ -1,8 +1,23 @@
-# Use Node.js 22
+# Fixed Dockerfile for Railway deployment
+# Use Node.js 22 Alpine
 FROM node:22-alpine
 
-# Install system dependencies
-RUN apk add --no-cache python3 make g++ openssl
+# Set environment variables
+ENV NODE_ENV=production
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies with better error handling
+# Split Python installation and use py3-pip instead of trying to get pip from python3
+RUN apk update && \
+    apk add --no-cache \
+        python3 \
+        py3-pip \
+        make \
+        g++ \
+        openssl \
+        && ln -sf python3 /usr/bin/python \
+        && python3 --version \
+        && pip3 --version
 
 WORKDIR /app
 
@@ -24,7 +39,7 @@ RUN npx prisma generate --no-engine
 # Build using npm script
 RUN npm run compile
 
-# Verify build output - FIXED: Check correct path
+# Verify build output - Check correct path
 RUN ls -la dist/ && test -f dist/src/app.js
 
 # Remove dev dependencies to reduce image size
@@ -44,5 +59,5 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD node -e "require('http').get('http://localhost:4000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"
 
-# Start the application - FIXED: Use correct path
+# Start the application - Use correct path
 CMD ["node", "dist/src/app.js"]
