@@ -1,4 +1,4 @@
-# Production-ready Dockerfile for Railway
+# Production-ready Dockerfile for Railway - Robust Version
 FROM node:18-alpine
 
 # Set environment variables
@@ -20,8 +20,14 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies with clean install
-RUN npm ci --only=production --no-audit --no-fund
+# Install dependencies (handle both scenarios: with and without package-lock.json)
+RUN if [ -f package-lock.json ]; then \
+        echo "📦 Found package-lock.json, using npm ci"; \
+        npm ci --omit=dev --no-audit --no-fund; \
+    else \
+        echo "📦 No package-lock.json found, using npm install"; \
+        npm install --omit=dev --no-audit --no-fund; \
+    fi
 
 # Copy source code
 COPY . .
@@ -39,10 +45,10 @@ RUN echo "=== BUILD VERIFICATION ===" && \
     if [ ! -f "dist/app.js" ]; then \
         echo "ERROR: dist/app.js not found!"; \
         echo "Contents of dist:"; \
-        find dist -type f -name "*.js"; \
+        find dist -type f -name "*.js" 2>/dev/null || echo "No JS files found"; \
         exit 1; \
     fi && \
-    echo "✅ Build verification successful"
+    echo "✅ Build verification successful - app.js found at dist/app.js"
 
 # Create required directories
 RUN mkdir -p logs uploads
