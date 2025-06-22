@@ -12,7 +12,7 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies (including devDependencies for build)
+# Install ALL dependencies (including @types for build)
 RUN npm install --no-audit --no-fund
 
 # Copy source code
@@ -22,18 +22,18 @@ COPY . .
 RUN npm run build
 
 # Verify build output
-RUN ls -la dist/ && \
+RUN echo "=== BUILD VERIFICATION ===" && \
+    ls -la dist/ && \
     if [ ! -f "dist/app.js" ]; then \
         echo "ERROR: dist/app.js not found!"; \
-        find . -name "app.js" -type f; \
+        echo "Contents of dist:"; \
+        find dist -name "*.js" -type f 2>/dev/null || echo "No JS files found"; \
         exit 1; \
-    fi
+    fi && \
+    echo "✅ Build successful - dist/app.js found"
 
 # Create required directories
 RUN mkdir -p logs uploads
-
-# Remove devDependencies after build (optional optimization)
-RUN npm prune --production
 
 # Set permissions
 RUN chown -R node:node /app
