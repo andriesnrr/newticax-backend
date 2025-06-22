@@ -2,7 +2,7 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "npm run start:railway"
+startCommand = "npm install --no-audit --no-fund && npm run build && npm start"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 healthcheckInterval = 10
