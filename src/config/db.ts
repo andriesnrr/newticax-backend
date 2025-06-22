@@ -13,12 +13,25 @@ export const prisma = new PrismaClient({
 });
 
 // Railway-optimized connection configuration
-const MAX_RETRIES = process.env.RAILWAY_ENVIRONMENT ? 25 : 10;
-const RETRY_DELAY = process.env.RAILWAY_ENVIRONMENT ? 3000 : 2000;
-const CONNECTION_TIMEOUT = process.env.RAILWAY_ENVIRONMENT ? 60000 : 30000;
-const HEALTH_CHECK_TIMEOUT = 10000;
+const MAX_RETRIES = process.env.RAILWAY_ENVIRONMENT ? 15 : 10; // Reduced retries
+const RETRY_DELAY = process.env.RAILWAY_ENVIRONMENT ? 2000 : 2000; // Faster retries
+const CONNECTION_TIMEOUT = process.env.RAILWAY_ENVIRONMENT ? 30000 : 30000; // Shorter timeout
+const HEALTH_CHECK_TIMEOUT = 5000; // Quick health check
+
+let isConnected = false;
+let connectionPromise: Promise<void> | null = null;
 
 export const connectDB = async (): Promise<void> => {
+  // Return existing connection promise if already connecting
+  if (connectionPromise) {
+    return connectionPromise;
+  }
+
+  connectionPromise = performConnection();
+  return connectionPromise;
+};
+
+const performConnection = async (): Promise<void> => {
   let retries = 0;
   
   console.log('🔌 Starting MongoDB connection...');
@@ -34,7 +47,6 @@ export const connectDB = async (): Promise<void> => {
     throw new Error('DATABASE_URL environment variable is not set');
   }
 
-  // Validate MongoDB connection string format
   if (!env.DATABASE_URL.startsWith('mongodb://') && !env.DATABASE_URL.startsWith('mongodb+srv://')) {
     throw new Error('DATABASE_URL must be a valid MongoDB connection string (mongodb:// or mongodb+srv://)');
   }
@@ -43,7 +55,7 @@ export const connectDB = async (): Promise<void> => {
     try {
       console.log(`🔌 MongoDB connection attempt ${retries + 1}/${MAX_RETRIES}...`);
       
-      // Test connection with extended timeout for Railway
+      // Test connection with timeout
       const connectionPromise = prisma.$connect();
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('Connection timeout')), CONNECTION_TIMEOUT);
@@ -51,11 +63,10 @@ export const connectDB = async (): Promise<void> => {
       
       await Promise.race([connectionPromise, timeoutPromise]);
       
-      // Test database connection with MongoDB-compatible operation
+      // Quick test query
       try {
-        // Use a simple count operation to test connection
         const testTimeout = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Query timeout')), 5000);
+          setTimeout(() => reject(new Error('Query timeout')), 3000);
         });
         
         const testQuery = prisma.user.count();
@@ -65,6 +76,7 @@ export const connectDB = async (): Promise<void> => {
         console.log('✅ MongoDB connection successful (collections will be created as needed)');
       }
       
+      isConnected = true;
       console.log('✅ MongoDB connected successfully');
       console.log(`📊 Database URL host: ${new URL(env.DATABASE_URL).hostname}`);
       
@@ -89,13 +101,12 @@ export const connectDB = async (): Promise<void> => {
         console.error('   - Ensure IP whitelist includes 0.0.0.0/0 for Railway');
         console.error('   - Check if database user has correct permissions');
         console.error('   - Verify network connectivity from Railway region');
-        console.error('   - Try connecting from MongoDB Compass with the same URL');
-        console.error('   - Check MongoDB Atlas status page for outages');
         
+        isConnected = false;
         throw new Error(`MongoDB connection failed after ${MAX_RETRIES} attempts: ${errorMessage}`);
       }
       
-      const waitTime = RETRY_DELAY * (retries + 1); // Progressive backoff
+      const waitTime = RETRY_DELAY;
       console.log(`⏳ Retrying MongoDB connection in ${waitTime / 1000} seconds...`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
@@ -106,6 +117,8 @@ export const connectDB = async (): Promise<void> => {
 export const disconnectDB = async (): Promise<void> => {
   try {
     await prisma.$disconnect();
+    isConnected = false;
+    connectionPromise = null;
     console.log('✅ MongoDB disconnected successfully');
   } catch (error) {
     console.error('❌ Error disconnecting from MongoDB:', error);
@@ -113,7 +126,7 @@ export const disconnectDB = async (): Promise<void> => {
   }
 };
 
-// Railway-optimized health check for MongoDB
+// CRITICAL FIX: Fast, non-blocking health check for Railway
 export const checkDBHealth = async (): Promise<{
   connected: boolean;
   responseTime?: number;
@@ -123,35 +136,48 @@ export const checkDBHealth = async (): Promise<{
 }> => {
   const startTime = Date.now();
   
+  // If we know we're not connected, return immediately
+  if (!isConnected) {
+    return {
+      connected: false,
+      responseTime: Date.now() - startTime,
+      error: 'Not connected',
+      environment: process.env.RAILWAY_ENVIRONMENT ? 'Railway' : 'Local',
+      collections: 0
+    };
+  }
+  
   try {
-    // Create timeout promise
+    // Very quick health check with short timeout
     const healthTimeout = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('Health check timeout')), HEALTH_CHECK_TIMEOUT);
     });
 
-    // Test with MongoDB-compatible operations
+    // Simple ping-like operation
     const healthCheck = async () => {
-      // Simple connection test using count operation
-      const userCount = await prisma.user.count();
-      return userCount;
+      // Try a very simple operation
+      await prisma.$queryRaw`SELECT 1`;
+      return true;
     };
 
-    const userCount = await Promise.race([healthCheck(), healthTimeout]);
+    await Promise.race([healthCheck(), healthTimeout]);
     
     const responseTime = Date.now() - startTime;
     
-    console.log(`💚 MongoDB health check: OK (${responseTime}ms) - Users: ${userCount}`);
+    console.log(`💚 MongoDB health check: OK (${responseTime}ms)`);
     return {
       connected: true,
       responseTime,
       environment: process.env.RAILWAY_ENVIRONMENT ? 'Railway' : 'Local',
-      collections: 1 // At least user collection exists
+      collections: 1
     };
   } catch (error) {
     const responseTime = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
     console.error(`💔 MongoDB health check failed (${responseTime}ms):`, errorMessage);
+    isConnected = false; // Update connection status
+    
     return {
       connected: false,
       responseTime,
@@ -162,7 +188,7 @@ export const checkDBHealth = async (): Promise<{
   }
 };
 
-// Railway-specific middleware with performance monitoring for MongoDB
+// Middleware for performance monitoring
 prisma.$use(async (params, next) => {
   const start = Date.now();
   
@@ -170,7 +196,7 @@ prisma.$use(async (params, next) => {
     const result = await next(params);
     const duration = Date.now() - start;
     
-    // Log slow queries with Railway context
+    // Log slow queries
     if (duration > 2000) {
       console.warn(`🐌 Slow MongoDB query: ${params.model}.${params.action} took ${duration}ms`, {
         environment: process.env.RAILWAY_ENVIRONMENT ? 'Railway' : 'Local',
@@ -277,7 +303,7 @@ export const testDatabaseOperations = async (): Promise<{
     return {
       canRead: true,
       canWrite: true,
-      collections: ['users'], // We know users collection works
+      collections: ['users'],
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -301,8 +327,14 @@ export const getDBStatus = () => {
     environment: process.env.RAILWAY_ENVIRONMENT ? 'Railway' : 'Local',
     deployment: process.env.RAILWAY_DEPLOYMENT_ID || 'unknown',
     region: process.env.RAILWAY_REGION || 'unknown',
-    nodeEnv: env.NODE_ENV
+    nodeEnv: env.NODE_ENV,
+    connected: isConnected
   };
+};
+
+// Railway connection status helper
+export const isConnectedToDB = (): boolean => {
+  return isConnected;
 };
 
 // Railway connection retry helper
@@ -313,6 +345,7 @@ export const retryConnection = async (maxRetries: number = 5): Promise<boolean> 
       const health = await checkDBHealth();
       if (health.connected) {
         console.log(`✅ MongoDB connection retry ${i + 1} successful`);
+        isConnected = true;
         return true;
       }
     } catch (error) {
@@ -322,6 +355,7 @@ export const retryConnection = async (maxRetries: number = 5): Promise<boolean> 
       }
     }
   }
+  isConnected = false;
   return false;
 };
 

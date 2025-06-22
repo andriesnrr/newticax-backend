@@ -10,10 +10,12 @@
   },
   "scripts": {
     "dev": "tsx watch src/app.ts",
-    "build": "npx prisma generate --no-engine && npx tsc",
+    "build": "npm run clean && npm run prisma:generate && npx tsc",
+    "build:railway": "rm -rf dist && npx prisma generate --no-engine && npx tsc --build",
     "compile": "npx tsc",
     "clean": "rm -rf dist",
     "start": "node dist/app.js",
+    "start:railway": "npm run build:railway && npm run start",
     "setup:database": "node dist/scripts/setup-database.js",
     "prisma:generate": "npx prisma generate --no-engine",
     "prisma:push": "npx prisma db push",
@@ -22,7 +24,9 @@
     "fix:admin": "tsx scripts/fix-admin-username.ts",
     "fix:admin:prod": "node dist/scripts/fix-admin-username.js",
     "type-check": "npx tsc --noEmit",
-    "lint": "echo \"Linting not configured\""
+    "lint": "echo \"Linting not configured\"",
+    "health": "curl -f http://localhost:${PORT:-4000}/health || exit 1",
+    "test:connection": "node -e \"fetch('http://localhost:${PORT:-4000}/health').then(r=>r.json()).then(console.log).catch(console.error)\""
   },
   "dependencies": {
     "@prisma/client": "^6.10.1",
