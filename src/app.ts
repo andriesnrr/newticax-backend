@@ -119,90 +119,6 @@ const authRateLimiter = rateLimit({
 // Apply general rate limiting to all routes
 app.use(generalLimiter);
 
-// ENHANCED: CORS configuration for Railway + Vercel
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      console.log("🌐 CORS Check - Origin:", origin);
-
-      // Allow requests with no origin (mobile apps, curl, etc.)
-      if (!origin) {
-        console.log("✅ CORS: No origin - allowing");
-        return callback(null, true);
-      }
-
-      const allowedOrigins = [
-        "https://newticax.vercel.app",
-        "https://newticax-frontend.vercel.app",
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-      ];
-
-      // Check exact matches first
-      if (allowedOrigins.includes(origin)) {
-        console.log("✅ CORS: Exact match allowed -", origin);
-        return callback(null, true);
-      }
-
-      // Allow any Vercel preview domains
-      if (origin.includes(".vercel.app")) {
-        console.log("✅ CORS: Vercel domain allowed -", origin);
-        return callback(null, true);
-      }
-
-      // Allow Railway domains
-      if (origin.includes(".railway.app")) {
-        console.log("✅ CORS: Railway domain allowed -", origin);
-        return callback(null, true);
-      }
-
-      // Allow localhost with any port
-      if (origin.includes("localhost") || origin.includes("127.0.0.1")) {
-        console.log("✅ CORS: Localhost allowed -", origin);
-        return callback(null, true);
-      }
-
-      console.log("❌ CORS: Origin blocked -", origin);
-      logger.warn("CORS blocked origin", { origin });
-      callback(new Error("Not allowed by CORS"));
-    },
-
-    // CRITICAL: Must be true for cookies to work cross-origin
-    credentials: true,
-
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Requested-With",
-      "Accept",
-      "Origin",
-      "Cookie",
-      "Set-Cookie",
-      "Cache-Control",
-      "Pragma",
-      "X-CSRF-Token",
-    ],
-
-    exposedHeaders: [
-      "X-Total-Count",
-      "X-Cache-Status",
-      "X-Auth-Status",
-      "X-Debug-Hint",
-      "X-Clear-Token",
-      "Set-Cookie",
-      "X-Rate-Limit-Remaining",
-      "X-Rate-Limit-Reset",
-    ],
-
-    // Cache preflight for 24 hours
-    maxAge: 86400,
-  })
-);
-
 // Handle preflight requests explicitly
 app.options("*", (req, res) => {
   console.log("🔄 OPTIONS preflight request:", req.path);
@@ -284,6 +200,90 @@ app.use(
     extended: true,
     limit: process.env.RAILWAY_ENVIRONMENT ? "20mb" : "10mb",
     parameterLimit: 1000,
+  })
+);
+
+// ENHANCED: CORS configuration for Railway + Vercel
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      console.log("🌐 CORS Check - Origin:", origin);
+
+      // Allow requests with no origin (mobile apps, curl, etc.)
+      if (!origin) {
+        console.log("✅ CORS: No origin - allowing");
+        return callback(null, true);
+      }
+
+      const allowedOrigins = [
+        "https://newticax.vercel.app",
+        "https://newticax-frontend.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+      ];
+
+      // Check exact matches first
+      if (allowedOrigins.includes(origin)) {
+        console.log("✅ CORS: Exact match allowed -", origin);
+        return callback(null, true);
+      }
+
+      // Allow any Vercel preview domains
+      if (origin.includes(".vercel.app")) {
+        console.log("✅ CORS: Vercel domain allowed -", origin);
+        return callback(null, true);
+      }
+
+      // Allow Railway domains
+      if (origin.includes(".railway.app")) {
+        console.log("✅ CORS: Railway domain allowed -", origin);
+        return callback(null, true);
+      }
+
+      // Allow localhost with any port
+      if (origin.includes("localhost") || origin.includes("127.0.0.1")) {
+        console.log("✅ CORS: Localhost allowed -", origin);
+        return callback(null, true);
+      }
+
+      console.log("❌ CORS: Origin blocked -", origin);
+      logger.warn("CORS blocked origin", { origin });
+      callback(new Error("Not allowed by CORS"));
+    },
+
+    // CRITICAL: Must be true for cookies to work cross-origin
+    credentials: true,
+
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+      "Origin",
+      "Cookie",
+      "Set-Cookie",
+      "Cache-Control",
+      "Pragma",
+      "X-CSRF-Token",
+    ],
+
+    exposedHeaders: [
+      "X-Total-Count",
+      "X-Cache-Status",
+      "X-Auth-Status",
+      "X-Debug-Hint",
+      "X-Clear-Token",
+      "Set-Cookie",
+      "X-Rate-Limit-Remaining",
+      "X-Rate-Limit-Reset",
+    ],
+
+    // Cache preflight for 24 hours
+    maxAge: 86400,
   })
 );
 
@@ -402,7 +402,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 // Enhanced Health check route with Railway-specific information
-app.get("/health", async (req: Request, res: Response) => {
+app.get("/api/health", async (req: Request, res: Response) => {
   const startTime = Date.now();
   console.log("🏥 Health check accessed");
 

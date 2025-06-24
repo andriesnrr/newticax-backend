@@ -52,6 +52,7 @@ export const validateLogin = (
   res: Response,
   next: NextFunction
 ) => {
+  console.log('🧾 [validateLogin] req.body:', req.body);
   const { email, password } = req.body;
 
   if (!email || !password) {
