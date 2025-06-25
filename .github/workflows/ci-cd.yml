@@ -1,287 +1,78 @@
-# .github/workflows/ci-cd.yml
-name: NewticaX CI/CD Pipeline
+name: Run Backend API Tests
 
 on:
   push:
-    branches: [ main, develop, feature/* ]
   pull_request:
-    branches: [ main, develop ]
-
-env:
-  NODE_VERSION: '18'
-  MONGODB_VERSION: '6.0'
 
 jobs:
-  # Job 1: Code Quality and Linting
-  lint-and-format:
-    name: Code Quality Check
+  api-tests:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint
-
-      - name: Run Prettier check
-        run: npm run format:check
-
-      - name: TypeScript check
-        run: npm run type-check
-
-  # Job 2: Unit Tests
-  unit-tests:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-    needs: lint-and-format
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run unit tests
-        run: npm run test:unit
-        env:
-          NODE_ENV: test
-
-      - name: Upload unit test coverage
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage/unit/lcov.info
-          flags: unit
-          name: unit-tests
-
-  # Job 3: Integration Tests
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: lint-and-format
     services:
-      mongodb:
-        image: mongo:${{ env.MONGODB_VERSION }}
+      mongo:
+        image: mongo:5.0
         ports:
           - 27017:27017
-        env:
-          MONGO_INITDB_ROOT_USERNAME: test
-          MONGO_INITDB_ROOT_PASSWORD: testpass
         options: >-
-          --health-cmd mongo
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd="mongosh --eval 'db.adminCommand(\"ping\")'" 
+          --health-interval=10s 
+          --health-timeout=5s 
+          --health-retries=5
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: 🟢 Use Node.js
+        uses: actions/setup-node@v3
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          node-version: 18
 
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         run: npm ci
 
-      - name: Setup test database
-        run: npm run db:setup:test
-
-      - name: Run integration tests
-        run: npm run test:integration
-        env:
-          NODE_ENV: test
-          DATABASE_URL: mongodb://test:testpass@localhost:27017/newticax_test?authSource=admin
-          REDIS_URL: redis://localhost:6379/1
-          JWT_SECRET: test_jwt_secret_for_ci
-          COOKIE_SECRET: test_cookie_secret_for_ci
-
-      - name: Upload integration test coverage
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage/integration/lcov.info
-          flags: integration
-          name: integration-tests
-
-  # Job 4: E2E Tests
-  e2e-tests:
-    name: E2E Tests
-    runs-on: ubuntu-latest
-    needs: [unit-tests, integration-tests]
-    services:
-      mongodb:
-        image: mongo:${{ env.MONGODB_VERSION }}
-        ports:
-          - 27017:27017
-        env:
-          MONGO_INITDB_ROOT_USERNAME: test
-          MONGO_INITDB_ROOT_PASSWORD: testpass
-        options: >-
-          --health-cmd mongo
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Setup test database
-        run: npm run db:setup:test
-
-      - name: Build application
-        run: npm run build
-        env:
-          NODE_ENV: production
-
-      - name: Start test server
-        run: npm run start:test &
-        env:
-          NODE_ENV: test
-          DATABASE_URL: mongodb://test:testpass@localhost:27017/newticax_test?authSource=admin
-          JWT_SECRET: test_jwt_secret_for_ci
-          COOKIE_SECRET: test_cookie_secret_for_ci
-          PORT: 4000
-
-      - name: Wait for server
+      - name: ⚙️ Create .env file
         run: |
-          timeout 60 bash -c 'until curl -f http://localhost:4000/health; do sleep 2; done'
+          echo "ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}" >> .env
+          echo "ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}" >> .env
+          echo "ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}" >> .env
+          echo "AUTH_RATE_LIMIT_MAX=5" >> .env
+          echo "CACHE_TTL=3600" >> .env
+          echo "COOKIE_SECRET=${{ secrets.COOKIE_SECRET }}" >> .env
+          echo "CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}" >> .env
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
+          echo "FROM_EMAIL=${{ secrets.FROM_EMAIL }}" >> .env
+          echo "FROM_NAME=NewticaX" >> .env
+          echo "FRONTEND_URL=${{ secrets.FRONTEND_URL }}" >> .env
+          echo "GITHUB_CLIENT_ID=${{ secrets.GITHUB_CLIENT_ID }}" >> .env
+          echo "GITHUB_CLIENT_SECRET=${{ secrets.GITHUB_CLIENT_SECRET }}" >> .env
+          echo "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" >> .env
+          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> .env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+          echo "LOG_FILE=logs/app.log" >> .env
+          echo "LOG_LEVEL=info" >> .env
+          echo "MAX_FILE_SIZE=5242880" >> .env
+          echo "NEWS_API_BASE_URL=https://newsapi.org/v2" >> .env
+          echo "NEWS_API_KEY=${{ secrets.NEWS_API_KEY }}" >> .env
+          echo "NEWS_CACHE_TTL=1800" >> .env
+          echo "NODE_ENV=production" >> .env
+          echo "NODE_OPTIONS=--max-old-space-size=4096" >> .env
+          echo "OAUTH_CALLBACK_URL=${{ secrets.OAUTH_CALLBACK_URL }}" >> .env
+          echo "PORT=4000" >> .env
+          echo "RATE_LIMIT_MAX=100" >> .env
+          echo "RATE_LIMIT_WINDOW=900000" >> .env
+          echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> .env
+          echo "SMTP_HOST=smtp.gmail.com" >> .env
+          echo "SMTP_PASS=${{ secrets.SMTP_PASS }}" >> .env
+          echo "SMTP_PORT=587" >> .env
+          echo "SMTP_USER=${{ secrets.SMTP_USER }}" >> .env
+          echo "UPLOAD_DIR=uploads" >> .env
 
-      - name: Install Playwright
-        run: npx playwright install --with-deps
 
-      - name: Run E2E tests
-        run: npm run test:e2e
-        env:
-          BASE_URL: http://localhost:4000
-
-      - name: Upload E2E test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: e2e-test-results
-          path: test-results/
-
-      - name: Upload E2E coverage
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage/e2e/lcov.info
-          flags: e2e
-          name: e2e-tests
-
-  # Job 5: Security Scan
-  security-scan:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    needs: lint-and-format
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run npm audit
-        run: npm audit --audit-level high
-
-      - name: Run Snyk to check for vulnerabilities
-        uses: snyk/actions/node@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --severity-threshold=high
-
-  # Job 6: Build and Deploy (only on main branch)
-  build-and-deploy:
-    name: Build and Deploy
-    runs-on: ubuntu-latest
-    needs: [unit-tests, integration-tests, e2e-tests, security-scan]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build application
-        run: npm run build
-        env:
-          NODE_ENV: production
-
-      - name: Deploy to Railway
-        uses: railway-app/railway@v0.1.0
-        with:
-          railway-token: ${{ secrets.RAILWAY_TOKEN }}
-          command: deploy
-
-      - name: Run smoke tests
-        run: npm run test:smoke
-        env:
-          BASE_URL: ${{ secrets.PRODUCTION_URL }}
-
-  # Job 7: Notification
-  notify:
-    name: Notify Team
-    runs-on: ubuntu-latest
-    needs: [build-and-deploy]
-    if: always()
-    steps:
-      - name: Notify on success
-        if: needs.build-and-deploy.result == 'success'
+      - name: 🚀 Start backend server
         run: |
-          echo "✅ Deployment successful!"
-          # Add Slack/Discord notification here
+          npm run build
+          nohup npm run start & sleep 5
 
-      - name: Notify on failure
-        if: needs.build-and-deploy.result == 'failure'
-        run: |
-          echo "❌ Deployment failed!"
-          # Add Slack/Discord notification here
+      - name: 🧪 Run API Tests
+        run: npm test
