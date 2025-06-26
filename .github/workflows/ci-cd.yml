@@ -63,7 +63,7 @@ jobs:
       - name: 🚀 Start backend server
         run: |
           npm run build
-          nohup npm run start & sleep 5
+          nohup npm run start & sleep 15
 
       - name: 🧪 Run API Tests
         run: npm test
