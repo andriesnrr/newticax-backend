@@ -156,7 +156,7 @@ export const checkDBHealth = async (): Promise<{
     // Simple ping-like operation
     const healthCheck = async () => {
       // Try a very simple operation
-      await prisma.$queryRaw`SELECT 1`;;
+      await prisma.user.findFirst();
       return true;
     };
 
