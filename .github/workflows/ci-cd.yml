@@ -33,41 +33,40 @@ jobs:
 
       - name: ⚙️ Create .env file
         run: |
-          echo "ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}" >> .env
-          echo "ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}" >> .env
-          echo "ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}" >> .env
+          echo "ADMIN_EMAIL=admin@newticax.com" >> .env
+          echo "ADMIN_PASSWORD=superadmin" >> .env
+          echo "ADMIN_USERNAME=superadmin" >> .env
           echo "AUTH_RATE_LIMIT_MAX=5" >> .env
           echo "CACHE_TTL=3600" >> .env
-          echo "COOKIE_SECRET=${{ secrets.COOKIE_SECRET }}" >> .env
-          echo "CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}" >> .env
-          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
-          echo "FROM_EMAIL=${{ secrets.FROM_EMAIL }}" >> .env
+          echo "COOKIE_SECRET=68645ab2f8fe16a4529bef7029d8efddd13a4008c732362ebb3b3518c6093e68" >> .env
+          echo "CORS_ORIGIN=https://newticax.vercel.app" >> .env
+          echo "DATABASE_URL=mongodb+srv://admin:admin@uisinformaticsproject.rp4uasl.mongodb.net/uisi_informatics_db?retryWrites=true&w=majority&appName=uisinformaticsproject" >> .env
+          echo "FROM_EMAIL=noreply@newticax.com" >> .env
           echo "FROM_NAME=NewticaX" >> .env
-          echo "FRONTEND_URL=${{ secrets.FRONTEND_URL }}" >> .env
-          echo "GITHUB_CLIENT_ID=${{ secrets.GITHUB_CLIENT_ID }}" >> .env
-          echo "GITHUB_CLIENT_SECRET=${{ secrets.GITHUB_CLIENT_SECRET }}" >> .env
-          echo "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" >> .env
-          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> .env
-          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+          echo "FRONTEND_URL=https://newticax.vercel.app" >> .env
+          echo "GITHUB_CLIENT_ID=Ov23liSYc6pps0zfysv5" >> .env
+          echo "GITHUB_CLIENT_SECRET=471a252525f9bc26a5ce27d65725d7f0bf69e9ee" >> .env
+          echo "GOOGLE_CLIENT_ID=880843987541-2tbt19hddukdcnmvapf6gs8gjfg8bu98.apps.googleusercontent.com" >> .env
+          echo "GOOGLE_CLIENT_SECRET=471a252525f9bc26a5ce27d65725d7f0bf69e9ee" >> .env
+          echo "JWT_SECRET=b8bbcae64923f3c4acd4bc55b1b9db19aeb6320e99d4ce0683d402676aa56e79" >> .env
           echo "LOG_FILE=logs/app.log" >> .env
           echo "LOG_LEVEL=info" >> .env
           echo "MAX_FILE_SIZE=5242880" >> .env
           echo "NEWS_API_BASE_URL=https://newsapi.org/v2" >> .env
-          echo "NEWS_API_KEY=${{ secrets.NEWS_API_KEY }}" >> .env
+          echo "NEWS_API_KEY=e61ff783833440768b6b46186c20d1cb" >> .env
           echo "NEWS_CACHE_TTL=1800" >> .env
           echo "NODE_ENV=production" >> .env
           echo "NODE_OPTIONS=--max-old-space-size=4096" >> .env
-          echo "OAUTH_CALLBACK_URL=${{ secrets.OAUTH_CALLBACK_URL }}" >> .env
+          echo "OAUTH_CALLBACK_URL=https://newticax-backend-production.up.railway.app/api/auth/callback" >> .env
           echo "PORT=4000" >> .env
           echo "RATE_LIMIT_MAX=100" >> .env
           echo "RATE_LIMIT_WINDOW=900000" >> .env
-          echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> .env
+          echo "REDIS_URL=redis://default:OomFGAE6Q1HhBq5fcxiipYSYypPhXPcA@redis-12274.c334.asia-southeast2-1.gce.redns.redis-cloud.com:12274" >> .env
           echo "SMTP_HOST=smtp.gmail.com" >> .env
-          echo "SMTP_PASS=${{ secrets.SMTP_PASS }}" >> .env
+          echo "SMTP_PASS=uylxposwacbkxyqz" >> .env
           echo "SMTP_PORT=587" >> .env
-          echo "SMTP_USER=${{ secrets.SMTP_USER }}" >> .env
+          echo "SMTP_USER=andriesnrai@gmail.com" >> .env
           echo "UPLOAD_DIR=uploads" >> .env
-
 
       - name: 🚀 Start backend server
         run: |
