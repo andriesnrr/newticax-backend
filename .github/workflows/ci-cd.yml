@@ -71,9 +71,5 @@ jobs:
           echo "Checking if backend is running..."
           curl -i http://localhost:4000/api/health || echo "Health check failed"
 
-      - name: ⏳ Wait for backend to be ready
-        run: |
-          npx wait-on http://localhost:4000/api/health
-
       - name: 🧪 Run API Tests
         run: npm test
