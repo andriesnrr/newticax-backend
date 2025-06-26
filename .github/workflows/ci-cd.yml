@@ -8,17 +8,6 @@ jobs:
   api-tests:
     runs-on: ubuntu-latest
 
-    services:
-      mongo:
-        image: mongo:5.0
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd="mongosh --eval 'db.adminCommand(\"ping\")'" 
-          --health-interval=10s 
-          --health-timeout=5s 
-          --health-retries=5
-
     steps:
       - name: ⬇️ Checkout repository
         uses: actions/checkout@v3
@@ -67,6 +56,9 @@ jobs:
           echo "SMTP_PORT=587" >> .env
           echo "SMTP_USER=andriesnrai@gmail.com" >> .env
           echo "UPLOAD_DIR=uploads" >> .env
+
+      - name: ⚙️ Generate Prisma client
+        run: npx prisma generate
 
       - name: 🚀 Start backend server
         run: |
