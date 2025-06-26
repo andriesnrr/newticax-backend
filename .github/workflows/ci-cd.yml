@@ -60,9 +60,7 @@ jobs:
 
       - name: 🚀 Start backend server
         run: |
-          npm run build
-          nohup npm run start > server.log 2>&1 &
-          sleep 5
+          npm run dev
           echo "📄 Backend logs:"
           cat server.log
 
