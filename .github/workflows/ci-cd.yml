@@ -61,7 +61,13 @@ jobs:
       - name: 🚀 Start backend server
         run: |
           npm run build
-          nohup npm run start > backend.log 2>&1 &
+          nohup npm run start:prod > server.log 2>&1 & sleep 5
+          cat server.log || true
+
+      - name: 🐞 Debug port
+        run: |
+          echo "Checking if backend is running..."
+          curl -i http://localhost:4000/api/health || echo "Health check failed"
 
       - name: ⏳ Wait for backend to be ready
         run: |
