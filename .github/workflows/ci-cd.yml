@@ -56,6 +56,7 @@ jobs:
           echo "SMTP_PORT=587" >> .env
           echo "SMTP_USER=andriesnrai@gmail.com" >> .env
           echo "UPLOAD_DIR=uploads" >> .env
+          echo "HOST=127.0.0.1" >> .env
 
       - name: 🚀 Start backend server
         run: |

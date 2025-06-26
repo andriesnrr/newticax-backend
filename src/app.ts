@@ -636,7 +636,8 @@ const startServer = async () => {
     const PORT = env.PORT || 4000;
     
     // Start server first (non-blocking)
-    const server = app.listen(PORT, "0.0.0.0", () => {
+    const host = process.env.HOST || '0.0.0.0';
+    const server = app.listen(PORT, host, () => {
       console.log(`✅ Server running on port ${PORT} in ${env.NODE_ENV} mode`);
       console.log(`🌐 Server bound to: 0.0.0.0:${PORT}`);
       console.log(`🚂 Railway URL: ${process.env.RAILWAY_STATIC_URL || "Not set"}`);
@@ -710,7 +711,8 @@ const startServer = async () => {
       const PORT = env.PORT || 4000;
       console.log("⚠️ Starting server with minimal functionality for Railway...");
       
-      const server = app.listen(PORT, "0.0.0.0", () => {
+      const host = process.env.HOST || '0.0.0.0';
+      const server = app.listen(PORT, host, () => {
         console.log(`⚠️ Server started with limited functionality on port ${PORT}`);
         console.log(`🚂 Railway deployment: Partially ready`);
         console.log(`🔗 URL: ${process.env.RAILWAY_STATIC_URL}`);
